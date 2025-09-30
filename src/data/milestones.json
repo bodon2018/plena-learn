@@ -1,0 +1,38 @@
+{
+  "// NOTE": "Milestones per category aligned with constants.ts. Keep simple now; add conditions later when backend is ready.",
+  "Youth Sports Coaching": [
+    { "id": "sessions_3", "label": "Completed 3 sessions", "metric": null },
+    { "id": "encouragement_3x_once", "label": "Encouragement ratio ≥ 3.0 once", "metric": "Encouragement ratio" },
+    { "id": "open_questions_5_one_session", "label": "Asked 5+ open questions in one session", "metric": "Open question use" },
+    { "id": "inclusivity_streak_3", "label": "Used inclusivity language in 3 consecutive moments", "metric": "Inclusivity language" }
+  ],
+
+  "Assertive Communication": [
+    { "id": "sessions_3", "label": "Completed 3 sessions", "metric": null },
+    { "id": "direct_ask_once", "label": "Made a clear, direct ask", "metric": "Directness of ask" },
+    { "id": "i_statement_3", "label": "Used 3+ I-statements in one session", "metric": "I-statement usage" },
+    { "id": "confidence_markers_streak_3", "label": "Sustained confident tone/markers for 3 turns", "metric": "Confidence markers" }
+  ],
+
+  "Executive Briefing": [
+    { "id": "sessions_3", "label": "Completed 3 sessions", "metric": null },
+    { "id": "bluf_clear_once", "label": "Delivered a clear BLUF summary", "metric": "Clarity of summary (BLUF)" },
+    { "id": "explicit_decision_request", "label": "Made an explicit decision request", "metric": "Explicit decision request" },
+    { "id": "tradeoff_articulation_once", "label": "Surfaced tradeoffs succinctly", "metric": "Tradeoff articulation" }
+  ],
+
+  "Intimate Relationships": [
+    { "id": "sessions_3", "label": "Completed 3 sessions", "metric": null },
+    { "id": "reflective_listening_3", "label": "Reflected partner’s point 3+ times", "metric": "Reflective listening" },
+    { "id": "positivity_ratio_session", "label": "Maintained positive/affection markers across session", "metric": "Affection/positivity" },
+    { "id": "repair_attempt_used", "label": "Used a repair attempt in-session", "metric": "Repair attempts" }
+  ],
+
+  "Public Speaking": [
+    { "id": "sessions_3", "label": "Completed 3 sessions", "metric": null },
+    { "id": "pacing_fluency", "label": "Kept steady pacing and fluency", "metric": "Pacing/fluency" },
+    { "id": "vocal_variety_once", "label": "Used clear vocal variety (pitch, pace, pause)", "metric": "Vocal variety" },
+    { "id": "audience_engagement_once", "label": "Prompted and acknowledged audience engagement", "metric": "Audience engagement" }
+  ]
+}
+
