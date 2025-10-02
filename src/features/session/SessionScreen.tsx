@@ -109,10 +109,13 @@ export default function SessionScreen({ category, metrics = [], onFinish }: Prop
   return (
     <>
       <AppBar title="Start Session" />
+      
+      {/* Blue Tip Box */}
+      <SessionMessageBox header={header} body={body} tone="Info" metric={currentTip?.metric} />
 
       {/* Context Card (AI option removed) */}
       <Card className="mb-4">
-        <h2 className="text-lg font-semibold">What context would you like to practice?</h2>
+        <h2 className="text-lg font-semibold">What is the context of this practice?</h2>
         <div className="mt-3 flex flex-col gap-2">
           <label className="flex items-center gap-2">
             <input type="radio" name="context" value="free" defaultChecked />
@@ -129,9 +132,6 @@ export default function SessionScreen({ category, metrics = [], onFinish }: Prop
           {/* REMOVED: "AI-generated random for practice" option */}
         </div>
       </Card>
-
-      {/* Blue Tip Box */}
-      <SessionMessageBox header={header} body={body} tone="Info" metric={currentTip?.metric} />
 
       {/* Recording bar (no frequency/real-time feedback card) */}
       <div className="sticky bottom-20 mt-4 flex items-center justify-between rounded-2xl border bg-white/80 p-4 shadow-soft backdrop-blur">

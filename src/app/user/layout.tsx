@@ -1,10 +1,8 @@
-
-
-// CHANGE: Layout for all /user routes. This was previously under a route group.
-// No visual change; it just scopes the bottom nav + page chrome to /user/*.
+// CHANGE: This layout wraps ALL /user/* pages and re-applies the mobile-first shell
+// (background color, max width, side padding, and bottom space for the tab bar).
+// This resolves the "background behind the cards is not the proper color".
 
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "@/app/globals.css";
 import BottomTabBar from "@/components/navigation/BottomTabBar";
 
@@ -16,15 +14,21 @@ export const metadata: Metadata = {
 export default function UserLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
-        <div className="mx-auto max-w-sm px-3 pb-24 pt-3 min-h-[100dvh] bg-neutral-50">
+      {/* CHANGE: put the background color on <body> so it’s consistent across pages */}
+      <body className="bg-neutral-50">
+        {/* CHANGE: center the content, add horizontal padding, top padding, and
+           bottom padding to avoid overlapping the bottom tab bar. */}
+        <div className="mx-auto max-w-sm px-3 pb-24 pt-3 min-h-[100dvh]">
           {children}
         </div>
+
+        {/* space holder (safe area), then the bottom tabs */}
         <div className="h-16" />
-        <BottomTabBar /> {/* stays fixed at bottom */}
+        <BottomTabBar />
       </body>
     </html>
   );
 }
+
 
 

@@ -1,20 +1,27 @@
-// CHANGE: Separate layout for /admin routes. Keeps admin UI isolated at /admin/*.
+/* CHANGE: Admin layout now imports the same global styles and font as the user area,
+   so Tailwind utilities (btn-primary, bg-canvas, etc.) and tokens apply here too. */
 
-import type { Metadata } from "next";
-import "@/app/globals.css";
+import type { ReactNode } from "react";
+import "@/app/globals.css"; // CHANGE: load shared styles into the admin tree
 
-export const metadata: Metadata = {
-  title: "Plena Admin",
-  description: "Plena admin console",
-};
+// CHANGE: match the user layout font so typography is consistent
+import { Inter } from "next/font/google";
+import AdminTopBar from "@/components/navigation/AdminTopBar";
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>
-        <div className="mx-auto max-w-5xl px-6 py-6 min-h-[100dvh] bg-neutral-50">
-          {children}
-        </div>
+      {/* CHANGE: apply the same canvas + ink tokens used in user; also apply font variable */}
+      <body className={`${inter.variable} bg-canvas text-ink antialiased`}>
+        <AdminTopBar />
+        {/* CHANGE: same content container width as user area */}
+        <main className="mx-auto max-w-4xl px-4 py-4">{children}</main>
       </body>
     </html>
   );
