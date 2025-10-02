@@ -1,38 +1,38 @@
 "use client";
-// CHANGE: Converted to use Next.js routing + renamed tabs (Play→Account, Metrics→Progress)
-// and made it reusable across all pages. Active tab is detected via usePathname.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, ListChecks, Target, Mic, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { Home, Activity, Mic, BarChart } from "lucide-react";
 
-const items = [
-  { href: "/account",  label: "Account",  icon: Home },       // CHANGE: was Play → now Account
-  { href: "/category", label: "Category", icon: ListChecks },
-  { href: "/progress", label: "Progress", icon: Target },     // CHANGE: was Metrics → now Progress
-  { href: "/session",  label: "Session",  icon: Mic },
-  { href: "/summary",  label: "Summary",  icon: BarChart3 },
-];
-
-export default function BottomTabBar() {
+export default function BottomNav() {
   const pathname = usePathname();
+
+  // CHANGE: All hrefs now include the "/user" segment
+  const navItems = [
+    { href: "/user/account",  label: "Account",  icon: Home },
+    { href: "/user/progress", label: "Progress", icon: Activity },
+    { href: "/user/session",  label: "Session",  icon: Mic },
+    { href: "/user/summary",  label: "Summary",  icon: BarChart },
+  ];
+
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-screen-sm border-t bg-white/90 backdrop-blur">
-      <ul className="grid grid-cols-5">
-        {items.map(({ href, label, icon: Icon }) => {
-          const active = pathname?.startsWith(href);
+    <nav className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-sm border-t bg-white/90 backdrop-blur">
+      <ul className="flex justify-around">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = pathname === item.href;
           return (
-            <li key={href}>
+            <li key={item.href}>
               <Link
-                href={href}
+                href={item.href}
                 className={cn(
-                  "flex h-14 w-full flex-col items-center justify-center gap-1 text-[11px]",
+                  "flex h-14 w-20 flex-col items-center justify-center gap-1 text-[11px]",
                   active ? "text-blue-600" : "text-neutral-500"
                 )}
               >
                 <Icon className="h-5 w-5" />
-                <span className="leading-none">{label}</span>
+                <span className="leading-none">{item.label}</span>
               </Link>
             </li>
           );

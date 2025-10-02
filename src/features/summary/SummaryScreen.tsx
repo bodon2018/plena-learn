@@ -427,7 +427,7 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
       {/* CHANGE (NEW ACTION): Right-aligned Record Again button below metrics */}
       <div className="mt-3 flex justify-end">
         <Link
-          href="/session"
+          href="/user/session"
           className="btn-outline"   // instead of custom border+hover, use shared white style
         >
           Record Again
