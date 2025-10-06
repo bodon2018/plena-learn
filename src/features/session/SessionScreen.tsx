@@ -108,11 +108,12 @@ export default function SessionScreen({ category, metrics = [], onFinish }: Prop
 
   return (
     <>
-      <AppBar title="Start Session" />
       
+      <AppBar title="Start Session" />
+      <Card className="mb-4">
       {/* Blue Tip Box */}
       <SessionMessageBox header={header} body={body} tone="Info" metric={currentTip?.metric} />
-
+      </Card>
       {/* Context Card (AI option removed) */}
       <Card className="mb-4">
         <h2 className="text-lg font-semibold">What is the context of this practice?</h2>
