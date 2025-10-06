@@ -1,15 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+/**
+ * CHANGELOG (SessionScreen)
+ * - CHANGE: Session now reads admin-defined metrics via useMetricsStore.
+ * - CHANGE: If no admin metrics yet, we show generic placeholders "Metric 1/2/3".
+ * - CHANGE: Tips and the welcome line use the resolved metrics from the store.
+ * - CHANGE: Kept Link-based navigation to Summary; onFinish remains optional.
+ * - SAFE: All styles (buttons, cards, spacing) preserved.
+ */
+
+import { useMemo, useState } from "react";
 import Link from "next/link"; // CHANGE: import Link for reliable navigation
 import AppBar from "@/components/navigation/AppBar";
 import Card from "@/components/ui/Card";
 import { Play, Pause, Mic, CheckCircle2, TriangleAlert, Activity, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useMetricsStore } from "@/hooks/useMetricsStore"; // NEW: single source of truth
 
 type Props = {
-  category: string;
-  metrics: string[];
+  /**
+   * CHANGE: category is no longer required for metrics resolution.
+   * We keep it for compatibility if you still pass it.
+   */
+  category?: string;
+  /**
+   * CHANGE: external metrics prop is optional. If provided, we will use it;
+   * otherwise we fall back to admin-defined active metrics.
+   */
+  metrics?: string[];
   // onFinish is no longer required for navigation, but we keep it optional
   // in case you still want to log/flush data before leaving the page.
   onFinish?: () => void; // CHANGE: made optional
@@ -46,7 +64,7 @@ function SessionMessageBox({
   metric?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 animate-fade-up">
+    <div className="animate-fade-up rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
       <div className="mb-1 flex items-center gap-2 text-xs text-neutral-600">
         <ToneIcon tone={tone} />
         <span>
@@ -80,9 +98,28 @@ export default function SessionScreen({ category, metrics = [], onFinish }: Prop
   const [recording, setRecording] = useState(false);
   const [showWelcome] = useState(true);
 
+  // NEW: Pull active admin metrics; fallback to placeholders if none.
+  const { metrics: defs } = useMetricsStore();
+  const adminMetricNames = useMemo(
+    () =>
+      defs
+        .filter((m) => m.active)
+        .sort((a, b) => (a.name.localeCompare(b.name) || a.id.localeCompare(b.id)))
+        .map((m) => m.name),
+    [defs]
+  );
+
+  // CHANGE: Resolve the effective metrics to show in this session.
+  // Priority: props.metrics (if provided) → admin-defined active metrics → placeholders.
+  const effectiveMetrics = useMemo(() => {
+    if (metrics.length > 0) return metrics;
+    if (adminMetricNames.length > 0) return adminMetricNames;
+    return ["Metric 1", "Metric 2", "Metric 3"]; // placeholders until admin defines metrics
+  }, [metrics, adminMetricNames]);
+
   const tips = useMemo(
     () =>
-      (metrics ?? []).map((m, i) => ({
+      (effectiveMetrics ?? []).map((m, i) => ({
         id: `tip-${i}`,
         metric: m,
         message:
@@ -93,14 +130,14 @@ export default function SessionScreen({ category, metrics = [], onFinish }: Prop
             : `Quick fix: try a reset and refocus on “${m}”.`,
         tone: (["Win", "Progress", "Urgent"] as const)[i] ?? "Progress",
       })),
-    [metrics]
+    [effectiveMetrics]
   );
 
   const currentTip = tips.length ? tips[0] : undefined;
   const header = showWelcome ? "Welcome" : "Real-time tip";
   const body = showWelcome ? (
     <span>
-      In this session you’ll focus on <b>{metrics[0]}</b>. Try to apply it in your answers.
+      In this session you’ll focus on <b>{effectiveMetrics[0]}</b>. Try to apply it in your answers.
     </span>
   ) : (
     currentTip?.message
@@ -108,12 +145,13 @@ export default function SessionScreen({ category, metrics = [], onFinish }: Prop
 
   return (
     <>
-      
       <AppBar title="Start Session" />
+
       <Card className="mb-4">
-      {/* Blue Tip Box */}
-      <SessionMessageBox header={header} body={body} tone="Info" metric={currentTip?.metric} />
+        {/* Blue Tip Box */}
+        <SessionMessageBox header={header} body={body} tone="Info" metric={currentTip?.metric} />
       </Card>
+
       {/* Context Card (AI option removed) */}
       <Card className="mb-4">
         <h2 className="text-lg font-semibold">What is the context of this practice?</h2>

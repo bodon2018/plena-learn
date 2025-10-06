@@ -1,16 +1,20 @@
-// CHANGE: Summary page now pulls the current category and metrics from the store
-// and renders the new SummaryScreen that (a) shows only 2 moments (Win + Urgent),
-// and (b) mirrors Progress unlock state, focusing on the active metric.
-
 "use client";
 
+/**
+ * CHANGE: Remove legacy metrics injection from session store.
+ * SummaryScreen now resolves metrics from the admin-defined source (useMetricsStore),
+ * with graceful placeholders when none exist.
+ */
+
 import SummaryScreen from "@/features/summary/SummaryScreen";
-import { useSessionStore } from "@/store/sessionStore";
+// NOTE: session store is no longer needed here for metrics/category.
+// import { useSessionStore } from "@/store/sessionStore";
 
 export default function SummaryPage() {
-  // read the current category and metrics from the global store
-  const category = useSessionStore((s) => s.category);
-  const metrics  = useSessionStore((s) => s.getMetrics()) ?? [];
+  // OLD (removed):
+  // const category = useSessionStore((s) => s.category);
+  // const metrics  = useSessionStore((s) => s.getMetrics()) ?? [];
 
-  return <SummaryScreen category={category} metrics={metrics} />;
+  // NEW: render SummaryScreen with no legacy props so it binds to admin metrics.
+  return <SummaryScreen />;
 }

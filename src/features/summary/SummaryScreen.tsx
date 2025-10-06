@@ -13,6 +13,9 @@
  *
  * NOTE: This file remains backend-agnostic. Replace the mock AI reply with a real fetch
  * to /api/summary/ask (or similar) later.
+ *
+ * CHANGE (METRICS FLOW): Metrics are now sourced from the admin-defined store (useMetricsStore),
+ * with graceful placeholders when none exist, and mapping by metric id OR name.
  */
 
 import { useMemo, useRef, useState, useEffect } from "react";
@@ -25,10 +28,12 @@ import { CheckCircle2, Lock, Play, Pause, Bookmark, X, Send } from "lucide-react
 import { cn } from "@/lib/cn";
 import { statusLabel } from "@/lib/progress";
 import { useSessionStore } from "@/store/sessionStore";
+import { useMetricsStore } from "@/hooks/useMetricsStore"; // NEW: single source of truth for metrics
 
 type Props = {
-  category: string;
-  metrics: string[];
+  // CHANGE: category/metrics kept optional for compatibility, but we default to admin-defined.
+  category?: string;
+  metrics?: string[];
 };
 
 type Moment = { src: string; tone: "Win" | "Urgent"; label: string };
@@ -47,11 +52,50 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
   const progressByMetric = useSessionStore((s) => s.progressByMetric);
   const storeDuration = useSessionStore((s: any) => s.lastSessionDurationSec ?? undefined);
 
+  // NEW: pull active admin metrics and resolve effective list
+  const { metrics: defs } = useMetricsStore();
+  const adminMetricNames = useMemo(
+    () =>
+      defs
+        .filter((m) => m.active)
+        .sort((a, b) => (a.name.localeCompare(b.name) || a.id.localeCompare(b.id)))
+        .map((m) => m.name),
+    [defs]
+  );
+
+  // CHANGE: effective metrics = props.metrics (if provided) -> admin-defined -> placeholders
+  const effectiveMetrics = useMemo(() => {
+    if (metrics.length > 0) return metrics;
+    if (adminMetricNames.length > 0) return adminMetricNames;
+    return ["Metric 1", "Metric 2", "Metric 3"]; // placeholders until admin defines metrics
+  }, [metrics, adminMetricNames]);
+
+  // CHANGE: normalize list (map by id first, then name) with a sensible demo default for the first item
+  const list = useMemo(
+    () =>
+      (effectiveMetrics ?? []).map((mName, idx) => {
+        // Try by metric ID if progress store uses IDs; then by name
+        const byId = (progressByMetric as any)?.[defs.find((d) => d.name === mName)?.id ?? ""];
+        const byName = (progressByMetric as any)?.[mName];
+        const item = byId || byName;
+
+        return (
+          item ?? {
+            metric: mName,
+            value: idx === 0 ? 0.45 : 0, // demo default for first metric
+            target: 1,
+            unlocked: idx === 0,
+          }
+        );
+      }),
+    [effectiveMetrics, progressByMetric, defs]
+  );
+
+  // CHANGE: pick first unlocked (or first) as active metric label (by name)
   const activeMetric = useMemo(() => {
-    if (!metrics.length) return "";
-    const firstUnlocked = metrics.find((m) => progressByMetric?.[m]?.unlocked);
-    return firstUnlocked ?? metrics[0];
-  }, [metrics, progressByMetric]);
+    const firstUnlocked = list.find((m: any) => m?.unlocked);
+    return (firstUnlocked?.metric as string) ?? (list[0]?.metric as string) ?? "";
+  }, [list]);
 
   /* ====== Moments (Win + Urgent) — unchanged from current ====== */
   const MOMENTS: Moment[] = useMemo(
@@ -62,23 +106,6 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
     []
   );
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
-
-  /* ====== Normalize metrics list for rendering (unchanged) ====== */
-  const list = useMemo(
-    () =>
-      (metrics ?? []).map((m, idx) => {
-        const item = progressByMetric?.[m];
-        return (
-          item ?? {
-            metric: m,
-            value: idx === 0 ? 0.45 : 0, // demo default for first metric
-            target: 1,
-            unlocked: idx === 0,
-          }
-        );
-      }),
-    [metrics, progressByMetric]
-  );
 
   /* =========================
      Annotate your practice
@@ -443,12 +470,12 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
         </div>
       </Card>
 
-      {/* ===== Your Metrics (unchanged) ===== */}
+      {/* ===== Your Metrics (now uses effectiveMetrics/list) ===== */}
       <Card className="mt-4">
         <h2 className="text-xl font-bold">Your Metrics</h2>
 
         <div className="mt-4 grid grid-cols-1 gap-3">
-          {list.map((m) => {
+          {list.map((m: any) => {
             const isActive = m.metric === activeMetric;
             const isLocked = !m.unlocked;
             const label = statusLabel(isLocked ? 0 : m.value);
@@ -515,10 +542,12 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
 
 /*
 CHANGES MADE (for this request):
-1) Moved the Bookmark button to the far right of the “Full session” row inside the Annotate card.
-   - Layout change: the row now uses `justify-between` and wraps the play+label on the left and
-     a `btn-primary` Bookmark button on the right.
-   - Exact area marked with comment: “put Bookmark button to the far right…”.
-2) Removed the old Bookmark button from the controls row (under the scrubber) so it doesn’t duplicate.
-3) Kept the “Add note” button inside the card and styled as `btn-primary` to match the “Send” button.
-*/ 
+1) METRICS FLOW:
+   - Read admin-defined active metrics via `useMetricsStore` and use those names throughout.
+   - If props.metrics is provided, it wins; else admin metrics; else placeholders “Metric 1/2/3”.
+   - Progress mapping is resilient: tries `progressByMetric[id]` first, then `[name]`.
+2) UI/STYLE:
+   - Preserved the existing layout, buttons, borders, and spacing.
+3) Learn-with-your-data:
+   - Kept the new contextual chat card with selectable chips from annotations (mock reply).
+*/

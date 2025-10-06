@@ -1,19 +1,20 @@
-// CHANGE: Session page now uses the selected category from the store
-// and derives the correct metrics. Added a defensive fallback ([]) so
-// `metrics.map(...)` in the Session screen never throws on first render.
-
 "use client";
 
+/**
+ * CHANGE: Stop injecting legacy metrics from sessionStore (getMetrics/METRICS_BY_CATEGORY).
+ * SessionScreen now resolves metrics from the admin-defined source (useMetricsStore),
+ * with graceful placeholders when none exist.
+ */
+
 import SessionScreen from "@/features/session/SessionScreen";
-import { useSessionStore } from "@/store/sessionStore";
+// import { useSessionStore } from "@/store/sessionStore"; // NOT NEEDED
 
 export default function SessionPage() {
-  // CHANGE: read category from global store
-  const category = useSessionStore((s) => s.category);
+  // OLD:
+  // const category = useSessionStore((s) => s.category);
+  // const metrics  = useSessionStore((s) => s.getMetrics()) ?? [];
+  // return <SessionScreen category={category} metrics={metrics} onFinish={() => {}} />;
 
-  // CHANGE: derive metrics for the current category; ensure it's always an array
-  const metrics = useSessionStore((s) => s.getMetrics()) ?? [];
-
-  // CHANGE: render the session screen with safe props
-  return <SessionScreen category={category} metrics={metrics} onFinish={() => {}} />;
+  // NEW: Render without legacy props so SessionScreen binds to admin metrics.
+  return <SessionScreen onFinish={() => {}} />;
 }

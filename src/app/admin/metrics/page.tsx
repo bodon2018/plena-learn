@@ -1,65 +1,48 @@
 "use client";
 
 /**
- * Admin › Metrics
- * - Beautiful UI + fully working create / toggle / edit.
- *
- * STYLE: uses Card + rounded 2xl inputs, soft shadows, proper spacing,
- *         and the same dark-blue .btn-primary used across admin.
- * LOGIC:  stateful metrics list, create metric, On/Off toggle, inline edit+save.
+ * CHANGE: Admin › Metrics
+ * - Switched from component-local state to a shared metrics store (useMetricsStore).
+ * - Definitions are now the single source of truth app-wide (will also feed user pages).
+ * - Kept UI/UX identical: cards, inputs, buttons, rounded-2xl styling.
+ * - Inline edit uses draft fields in-page only; saving writes back to the store.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Card from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
+import { useMetricsStore } from "@/hooks/useMetricsStore";
+import type { MetricDefinition, MetricScope, MetricVisibility } from "@/lib/types/metrics";
 
-type Metric = {
-  id: string;
-  name: string;
-  scope: "Coach" | "Player" | "Facilitator" | "Teacher";
-  description: string;
-  target: string;
-  visibility: "Aggregate only (no raw clips)" | "Allow clip link if coach shares";
-  active: boolean;
-  // edit drafts
+type EditableMetric = MetricDefinition & {
+  // edit drafts (view-local only)
   editing?: boolean;
   draftName?: string;
   draftDescription?: string;
   draftTarget?: string;
-  draftVisibility?: Metric["visibility"];
-  draftScope?: Metric["scope"];
+  draftVisibility?: MetricVisibility;
+  draftScope?: MetricScope;
 };
 
 export default function MetricsPage() {
-  /* LOGIC: seed with 2 placeholder definitions */
-  const [metrics, setMetrics] = useState<Metric[]>([
-    {
-      id: "m1",
-      name: "Metric 1",
-      scope: "Coach",
-      description: "Placeholder description",
-      target: "≥ 80%",
-      visibility: "Aggregate only (no raw clips)",
-      active: true,
-    },
-    {
-      id: "m2",
-      name: "Metric 2",
-      scope: "Player",
-      description: "Placeholder description",
-      target: "≥ 2.0",
-      visibility: "Allow clip link if coach shares",
-      active: false,
-    },
-  ]);
+  // CHANGE: pull from single store
+  const { metrics, createMetric, toggleActive, updateMetric } = useMetricsStore();
+
+  // VIEW-LOCAL copy to hold drafts (we don't mutate store fields for drafts)
+  const [local, setLocal] = useState<Record<string, Partial<EditableMetric>>>({});
+
+  // Compose display list by merging store + any draft flags
+  const merged: EditableMetric[] = useMemo(() => {
+    return metrics.map((m) => ({ ...m, ...(local[m.id] as object) })) as EditableMetric[];
+  }, [metrics, local]);
 
   /* LOGIC: create form state */
   const [form, setForm] = useState({
     name: "",
-    scope: "Coach" as Metric["scope"],
+    scope: "Coach" as MetricScope,
     description: "",
     target: "",
-    visibility: "Aggregate only (no raw clips)" as Metric["visibility"],
+    visibility: "Aggregate only (no raw clips)" as MetricVisibility,
   });
 
   const onFormChange = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
@@ -71,22 +54,19 @@ export default function MetricsPage() {
     form.visibility &&
     form.target.trim().length > 0;
 
-  /* LOGIC: append newly created metric */
-  const createMetric = () => {
+  /* CHANGE: append newly created metric to the shared store */
+  const onCreate = () => {
     if (!canCreate) return;
-    setMetrics((prev) => [
-      ...prev,
-      {
-        id: String(Date.now()),
-        name: form.name.trim(),
-        scope: form.scope,
-        description: form.description.trim(),
-        target: form.target.trim(),
-        visibility: form.visibility,
-        active: true,
-      },
-    ]);
-    // STYLE/LOGIC: reset inputs to their pretty placeholders
+    createMetric({
+      name: form.name.trim(),
+      scope: form.scope,
+      description: form.description.trim(),
+      target: form.target.trim(),
+      visibility: form.visibility,
+      active: true,
+      // NEW: default progress is undefined; dashboards can handle missing value
+      progress: undefined,
+    });
     setForm({
       name: "",
       scope: "Coach",
@@ -96,58 +76,42 @@ export default function MetricsPage() {
     });
   };
 
-  /* LOGIC: on/off toggle */
-  const toggleActive = (id: string) =>
-    setMetrics((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, active: !m.active } : m))
-    );
-
-  /* LOGIC: start inline editing with drafts */
+  /* CHANGE: start inline editing by setting local draft flags */
   const startEdit = (id: string) =>
-    setMetrics((prev) =>
-      prev.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              editing: true,
-              draftName: m.name,
-              draftDescription: m.description,
-              draftTarget: m.target,
-              draftVisibility: m.visibility,
-              draftScope: m.scope,
-            }
-          : m
-      )
-    );
+    setLocal((prev) => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        editing: true,
+        draftName: metrics.find((m) => m.id === id)?.name ?? "",
+        draftDescription: metrics.find((m) => m.id === id)?.description ?? "",
+        draftTarget: metrics.find((m) => m.id === id)?.target ?? "",
+        draftVisibility: metrics.find((m) => m.id === id)?.visibility ?? "Aggregate only (no raw clips)",
+        draftScope: metrics.find((m) => m.id === id)?.scope ?? "Coach",
+      },
+    }));
 
-  /* LOGIC: save inline edits */
-  const saveEdit = (id: string) =>
-    setMetrics((prev) =>
-      prev.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              editing: false,
-              name: (m.draftName ?? m.name).trim(),
-              description: (m.draftDescription ?? m.description).trim(),
-              target: (m.draftTarget ?? m.target).trim(),
-              visibility: m.draftVisibility ?? m.visibility,
-              scope: m.draftScope ?? m.scope,
-              draftName: undefined,
-              draftDescription: undefined,
-              draftTarget: undefined,
-              draftVisibility: undefined,
-              draftScope: undefined,
-            }
-          : m
-      )
-    );
+  /* CHANGE: save inline edits back to the shared store */
+  const saveEdit = (id: string) => {
+    const d = local[id] as EditableMetric | undefined;
+    if (!d) return;
 
-  /* LOGIC: edit field changes */
-  const onDraftChange = (id: string, field: keyof Metric, value: any) =>
-    setMetrics((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, [field]: value } : m))
-    );
+    updateMetric(id, {
+      name: (d.draftName ?? "").trim() || metrics.find((m) => m.id === id)?.name,
+      description:
+        (d.draftDescription ?? "").trim() ||
+        metrics.find((m) => m.id === id)?.description,
+      target: (d.draftTarget ?? "").trim() || metrics.find((m) => m.id === id)?.target,
+      visibility: (d.draftVisibility as MetricVisibility) ?? metrics.find((m) => m.id === id)?.visibility,
+      scope: (d.draftScope as MetricScope) ?? metrics.find((m) => m.id === id)?.scope,
+    });
+
+    setLocal((prev) => ({ ...prev, [id]: { ...prev[id], editing: false } }));
+  };
+
+  /* CHANGE: edit field changes are kept view-local */
+  const onDraftChange = (id: string, field: keyof EditableMetric, value: any) =>
+    setLocal((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
 
   /* STYLE: shared pretty input classes to match your screenshot */
   const inputCls =
@@ -163,7 +127,6 @@ export default function MetricsPage() {
         <h2 className="text-xl font-bold">Create a metric</h2>
 
         <div className="mt-4 grid gap-3">
-          {/* STYLE: pretty placeholders, rounded-2xl inputs */}
           <div>
             <label className="block text-sm text-neutral-700">Name</label>
             <input
@@ -179,7 +142,7 @@ export default function MetricsPage() {
             <select
               className={inputCls}
               value={form.scope}
-              onChange={(e) => onFormChange("scope", e.target.value as Metric["scope"])}
+              onChange={(e) => onFormChange("scope", e.target.value as MetricScope)}
             >
               <option>Coach</option>
               <option>Player</option>
@@ -214,7 +177,7 @@ export default function MetricsPage() {
               className={inputCls}
               value={form.visibility}
               onChange={(e) =>
-                onFormChange("visibility", e.target.value as Metric["visibility"])
+                onFormChange("visibility", e.target.value as MetricVisibility)
               }
             >
               <option>Aggregate only (no raw clips)</option>
@@ -223,11 +186,11 @@ export default function MetricsPage() {
           </div>
         </div>
 
-        {/* STYLE: keep dark-blue always via btn-primary; disable with opacity only */}
+        {/* STYLE: keep dark-blue via btn-primary; disable with opacity only */}
         <div className="mt-4">
           <button
             className={cn("btn-primary", !canCreate && "opacity-50 pointer-events-none")}
-            onClick={createMetric}
+            onClick={onCreate}
             disabled={!canCreate}
           >
             + Create metric
@@ -240,8 +203,11 @@ export default function MetricsPage() {
         <h2 className="mb-3 text-xl font-bold">Existing metric definitions</h2>
 
         <div className="divide-y rounded-2xl border">
-          {metrics.map((m) => (
-            <div key={m.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-start sm:justify-between">
+          {merged.map((m) => (
+            <div
+              key={m.id}
+              className="flex flex-col gap-2 p-3 sm:flex-row sm:items-start sm:justify-between"
+            >
               <div className="flex-1">
                 {!m.editing ? (
                   <>
@@ -250,7 +216,9 @@ export default function MetricsPage() {
                       {m.scope} • {m.target} • {m.visibility}
                     </div>
                     {m.description ? (
-                      <div className="mt-1 text-xs text-neutral-500">{m.description}</div>
+                      <div className="mt-1 text-xs text-neutral-500">
+                        {m.description}
+                      </div>
                     ) : null}
                   </>
                 ) : (
@@ -265,7 +233,9 @@ export default function MetricsPage() {
                     <select
                       className={inputCls}
                       value={m.draftScope ?? "Coach"}
-                      onChange={(e) => onDraftChange(m.id, "draftScope", e.target.value as Metric["scope"])}
+                      onChange={(e) =>
+                        onDraftChange(m.id, "draftScope", e.target.value as MetricScope)
+                      }
                     >
                       <option>Coach</option>
                       <option>Player</option>
@@ -285,7 +255,7 @@ export default function MetricsPage() {
                         onDraftChange(
                           m.id,
                           "draftVisibility",
-                          e.target.value as Metric["visibility"]
+                          e.target.value as MetricVisibility
                         )
                       }
                     >
