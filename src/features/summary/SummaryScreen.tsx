@@ -1,42 +1,43 @@
 "use client";
 
 /**
- * CHANGE (NEW CARD): “Learn with your data”
- * - Sits directly BELOW “Annotate Your Practice”.
- * - Users can tap any Bookmark/Note in the Annotate card to add it as a context chip
- *   in the new card. They can also remove chips.
- * - A small chat composer lets them ask questions; an AI reply appears (mock for now).
- * - Reply area is compact to preserve the clean visual hierarchy.
+ * CHANGE (REMOVAL): The "Your Metrics" card has been removed from Summary,
+ * per request. All related imports (ProgressBar, statusLabel, Lock, CheckCircle2),
+ * props, and derived metric state were deleted to avoid unused-code errors.
+ * The rest of the page (Your 2 Moments, Annotate Your Practice, Learn with your data,
+ * and the "Record Again" button) continues to work unchanged.
  *
- * CHANGE (ANNOTATE): Notes/Bookmarks list items get a tiny “Use in chat” affordance
- * (the whole pill is clickable) that pushes the annotation into the “Learn with your data” context.
+ * NOTE: This file stays backend-agnostic; audio, chat, and annotations are mock/local only.
  *
- * NOTE: This file remains backend-agnostic. Replace the mock AI reply with a real fetch
- * to /api/summary/ask (or similar) later.
- *
- * CHANGE (METRICS FLOW): Metrics are now sourced from the admin-defined store (useMetricsStore),
- * with graceful placeholders when none exist, and mapping by metric id OR name.
+ * NEW CHANGE (COMMENT): The "Your 2 Moments" section is fully commented out per request,
+ * along with its dedicated import and state, so only "Annotate Your Practice" and
+ * "Learn with your data" render now. Uncomment to restore.
  */
 
-import { useMemo, useRef, useState, useEffect } from "react";
+import { /* useMemo, */ useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import AppBar from "@/components/navigation/AppBar";
 import Card from "@/components/ui/Card";
-import AudioPlayButton from "@/components/audio/AudioPlayButton";
-import ProgressBar from "@/components/ui/ProgressBar";
-import { CheckCircle2, Lock, Play, Pause, Bookmark, X, Send } from "lucide-react";
+// CHANGE: comment out AudioPlayButton import (used only by the Moments section)
+// import AudioPlayButton from "@/components/audio/AudioPlayButton";
+// CHANGE: removed ProgressBar import
+// import ProgressBar from "@/components/ui/ProgressBar";
+// CHANGE: removed statusLabel import
+// import { statusLabel } from "@/lib/progress";
+import { Play, Pause, Bookmark, X, Send } from "lucide-react"; // CHANGE: trimmed icon imports
 import { cn } from "@/lib/cn";
-import { statusLabel } from "@/lib/progress";
 import { useSessionStore } from "@/store/sessionStore";
-import { useMetricsStore } from "@/hooks/useMetricsStore"; // NEW: single source of truth for metrics
+// CHANGE: removed useMetricsStore import
+// import { useMetricsStore } from "@/hooks/useMetricsStore";
 
 type Props = {
-  // CHANGE: category/metrics kept optional for compatibility, but we default to admin-defined.
+  // CHANGE: keep type for compatibility, but we no longer use these in Summary
   category?: string;
   metrics?: string[];
 };
 
-type Moment = { src: string; tone: "Win" | "Urgent"; label: string };
+// CHANGE: comment out Moment type (used only by Moments section)
+// type Moment = { src: string; tone: "Win" | "Urgent"; label: string };
 
 /* Helper: format seconds to 0:00 / 1:23:45 */
 function fmtTime(totalSec: number | null | undefined) {
@@ -47,65 +48,20 @@ function fmtTime(totalSec: number | null | undefined) {
   return h > 0 ? `${h}:${m.padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
-export default function SummaryScreen({ category, metrics = [] }: Props) {
-  /* ====== Metrics state (mirrors Progress tab) ====== */
-  const progressByMetric = useSessionStore((s) => s.progressByMetric);
+export default function SummaryScreen({}: Props) {
+  /* ===== Moments (Win + Urgent) ===== */
+  // CHANGE: comment out Moments data and local playing state
+  // const MOMENTS: Moment[] = useMemo(
+  //   () => [
+  //     { src: "/audio/top1.mp3", tone: "Win",    label: "Moment #1" },
+  //     { src: "/audio/top3.mp3", tone: "Urgent", label: "Moment #2" },
+  //   ],
+  //   []
+  // );
+  // const [playingIdx, setPlayingIdx] = useState<number | null>(null);
+
+  /* ===== Store values (duration) ===== */
   const storeDuration = useSessionStore((s: any) => s.lastSessionDurationSec ?? undefined);
-
-  // NEW: pull active admin metrics and resolve effective list
-  const { metrics: defs } = useMetricsStore();
-  const adminMetricNames = useMemo(
-    () =>
-      defs
-        .filter((m) => m.active)
-        .sort((a, b) => (a.name.localeCompare(b.name) || a.id.localeCompare(b.id)))
-        .map((m) => m.name),
-    [defs]
-  );
-
-  // CHANGE: effective metrics = props.metrics (if provided) -> admin-defined -> placeholders
-  const effectiveMetrics = useMemo(() => {
-    if (metrics.length > 0) return metrics;
-    if (adminMetricNames.length > 0) return adminMetricNames;
-    return ["Metric 1", "Metric 2", "Metric 3"]; // placeholders until admin defines metrics
-  }, [metrics, adminMetricNames]);
-
-  // CHANGE: normalize list (map by id first, then name) with a sensible demo default for the first item
-  const list = useMemo(
-    () =>
-      (effectiveMetrics ?? []).map((mName, idx) => {
-        // Try by metric ID if progress store uses IDs; then by name
-        const byId = (progressByMetric as any)?.[defs.find((d) => d.name === mName)?.id ?? ""];
-        const byName = (progressByMetric as any)?.[mName];
-        const item = byId || byName;
-
-        return (
-          item ?? {
-            metric: mName,
-            value: idx === 0 ? 0.45 : 0, // demo default for first metric
-            target: 1,
-            unlocked: idx === 0,
-          }
-        );
-      }),
-    [effectiveMetrics, progressByMetric, defs]
-  );
-
-  // CHANGE: pick first unlocked (or first) as active metric label (by name)
-  const activeMetric = useMemo(() => {
-    const firstUnlocked = list.find((m: any) => m?.unlocked);
-    return (firstUnlocked?.metric as string) ?? (list[0]?.metric as string) ?? "";
-  }, [list]);
-
-  /* ====== Moments (Win + Urgent) — unchanged from current ====== */
-  const MOMENTS: Moment[] = useMemo(
-    () => [
-      { src: "/audio/top1.mp3", tone: "Win",    label: "Moment #1" },
-      { src: "/audio/top3.mp3", tone: "Urgent", label: "Moment #2" },
-    ],
-    []
-  );
-  const [playingIdx, setPlayingIdx] = useState<number | null>(null);
 
   /* =========================
      Annotate your practice
@@ -124,7 +80,7 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
   const [marks, setMarks] = useState<Mark[]>([]);
   const [noteText, setNoteText] = useState("");
 
-  // CHANGE (NEW STATE): context items selected for “Learn with your data”
+  // CHANGE (NEW STATE from previous work): chips used by "Learn with your data"
   type ContextItem =
     | { kind: "bookmark"; t: number }
     | { kind: "note"; t: number; text: string };
@@ -189,7 +145,7 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
     setCurrentSec(t);
   };
 
-  // CHANGE (HANDLERS): push an annotation into the “Learn with your data” context
+  // Push an annotation into the “Learn with your data” context
   const pushBookmarkToContext = (t: number) => {
     setContextItems((prev) => [...prev, { kind: "bookmark", t }]);
   };
@@ -213,7 +169,7 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
     setChat((c) => [...c, { role: "user", text: q, ts: Date.now() }]);
     setInput("");
 
-    // CHANGE (MOCK AI): Replace with a real fetch later
+    // Mock “AI” reply (replace with real fetch later)
     const summaryBits = contextItems
       .map((ci) =>
         ci.kind === "bookmark"
@@ -221,10 +177,10 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
           : `note @ ${fmtTime(ci.t)}: "${ci.text}"`
       )
       .join("; ");
+    const mock =
+      `Considering ${summaryBits || "your session"}, here’s a concise suggestion: ` +
+      `try one concrete behavior in your next turn.`;
 
-    const mock = `Considering ${summaryBits || "your session"}, here’s a concise suggestion focused on your current metric: try one concrete behavior in your next turn.`;
-
-    // small delay to feel async
     setTimeout(() => {
       setChat((c) => [...c, { role: "assistant", text: mock, ts: Date.now() }]);
     }, 350);
@@ -234,7 +190,9 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
     <>
       <AppBar title="Session Summary" />
 
-      {/* ===== Your 2 Moments (unchanged) ===== */}
+      {/* ===== Your 2 Moments ===== */}
+      {/*
+      CHANGE (COMMENTED OUT): The entire Moments card is commented out per request.
       <Card>
         <h2 className="text-xl font-bold">Your 2 Moments</h2>
         <div className="mt-3 space-y-3">
@@ -269,12 +227,12 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
           ))}
         </div>
       </Card>
+      */}
 
-      {/* ===== Annotate Your Practice (now emits context to chat) ===== */}
+      {/* ===== Annotate Your Practice ===== */}
       <Card className="mt-4">
         <h2 className="text-xl font-bold">Annotate Your Practice</h2>
 
-        {/* CHANGE: put Bookmark button to the far right of “Full session” row */}
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button
@@ -291,7 +249,7 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
             </div>
           </div>
 
-          {/* NEW POSITION: Bookmark button styled like “Send” */}
+          {/* Bookmark button */}
           <button type="button" onClick={addBookmark} className="btn-primary">
             <Bookmark className="mr-1 inline-block h-4 w-4" />
             Bookmark
@@ -317,7 +275,6 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
 
         {/* Controls */}
         <div className="mt-3 flex items-center gap-2">
-          {/* REMOVED bookmark from here (moved above) */}
           <input
             type="text"
             value={noteText}
@@ -336,7 +293,7 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
           </button>
         </div>
 
-        {/* Lists with round-corner pills that are clickable to “Use in chat” */}
+        {/* Notes & Bookmarks list */}
         <div className="mt-3">
           <button
             type="button"
@@ -356,7 +313,6 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
                 <ul className="mt-1 flex flex-wrap gap-2">
                   {marks.map((b, idx) => (
                     <li key={`bm-${idx}`}>
-                      {/* CHANGE: rounded pill; click to add to chat context */}
                       <button
                         className="rounded-full border border-neutral-300 bg-white px-3 py-1 text-xs hover:bg-neutral-50"
                         title="Use in chat"
@@ -384,7 +340,6 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
                       >
                         {fmtTime(n.t)}
                       </button>
-                      {/* CHANGE: rounded note box; click to add to chat context */}
                       <button
                         className="max-w-[80%] rounded-xl border border-neutral-200 bg-white px-3 py-2 text-left text-xs hover:bg-neutral-50"
                         title="Use in chat"
@@ -401,7 +356,7 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
         </div>
       </Card>
 
-      {/* ===== CHANGE (NEW CARD): Learn with your data (chat over selected annotations) ===== */}
+      {/* ===== Learn with your data (chat) ===== */}
       <Card className="mt-4">
         <h2 className="text-xl font-bold">Learn with your data</h2>
 
@@ -454,7 +409,7 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
           )}
         </div>
 
-        {/* Composer (small, right-aligned send) */}
+        {/* Composer */}
         <div className="mt-3 flex items-center gap-2">
           <input
             type="text"
@@ -470,66 +425,6 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
         </div>
       </Card>
 
-      {/* ===== Your Metrics (now uses effectiveMetrics/list) ===== */}
-      <Card className="mt-4">
-        <h2 className="text-xl font-bold">Your Metrics</h2>
-
-        <div className="mt-4 grid grid-cols-1 gap-3">
-          {list.map((m: any) => {
-            const isActive = m.metric === activeMetric;
-            const isLocked = !m.unlocked;
-            const label = statusLabel(isLocked ? 0 : m.value);
-
-            return (
-              <div
-                key={m.metric}
-                className={cn(
-                  "rounded-2xl border p-4",
-                  isLocked && "opacity-70",
-                  !isActive && "bg-neutral-50"
-                )}
-              >
-                <div className="mb-1 flex items-center gap-2">
-                  <div className={cn("font-medium", !isActive && "text-neutral-600")}>
-                    {m.metric}
-                    {isActive && (
-                      <span className="ml-2 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
-                        Focused
-                      </span>
-                    )}
-                  </div>
-
-                  <span
-                    className={cn(
-                      "ml-auto inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs",
-                      isLocked
-                        ? "bg-neutral-200 text-neutral-600"
-                        : label === "Mastered"
-                        ? "bg-success/15 text-success"
-                        : label === "On track"
-                        ? "bg-secondary/15 text-secondary"
-                        : "bg-sky/15 text-sky"
-                    )}
-                  >
-                    {isLocked ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                    {isLocked ? "Locked" : label}
-                  </span>
-                </div>
-
-                {/* Bar */}
-                <ProgressBar value={isLocked ? 0 : m.value} target={m.target ?? 1} />
-
-                {/* % + Target below bar (small) */}
-                <div className="mt-1 flex items-center text-xs text-neutral-600">
-                  <span>{isLocked ? "0%" : `${Math.round(m.value * 100)}%`}</span>
-                  <span className="ml-auto">Target: {Math.round((m.target ?? 1) * 100)}%</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
       {/* Right-aligned Record Again (route under /user) */}
       <div className="mt-3 flex justify-end">
         <Link href="/user/session" className="btn-outline">
@@ -539,15 +434,3 @@ export default function SummaryScreen({ category, metrics = [] }: Props) {
     </>
   );
 }
-
-/*
-CHANGES MADE (for this request):
-1) METRICS FLOW:
-   - Read admin-defined active metrics via `useMetricsStore` and use those names throughout.
-   - If props.metrics is provided, it wins; else admin metrics; else placeholders “Metric 1/2/3”.
-   - Progress mapping is resilient: tries `progressByMetric[id]` first, then `[name]`.
-2) UI/STYLE:
-   - Preserved the existing layout, buttons, borders, and spacing.
-3) Learn-with-your-data:
-   - Kept the new contextual chat card with selectable chips from annotations (mock reply).
-*/

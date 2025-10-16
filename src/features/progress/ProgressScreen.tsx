@@ -9,7 +9,8 @@ import AppBar from "@/components/navigation/AppBar";
 import ProgressBar from "@/components/ui/ProgressBar";
 import { useSessionStore } from "@/store/sessionStore";
 import milestonesData from "@/data/milestones.json";
-import { statusLabel, narrative } from "@/lib/progress";
+// CHANGE: remove `narrative` since the Narrative card is gone
+import { statusLabel } from "@/lib/progress";
 import { CheckCircle2, Lock } from "lucide-react";
 import { cn } from "@/lib/cn";
 // import { METRICS_BY_CATEGORY } from "@/lib/constants";
@@ -171,14 +172,8 @@ export default function ProgressScreen() {
 
   const unlockedCount = list.filter((m) => m.unlocked).length;
 
-  const narrativeText = useMemo(() => {
-    if (list.length === 0) {
-      return "Start a session to generate progress. Your admin can define metrics at any time.";
-    }
-    const head = list[0];
-    const from = Math.max(0, head.value - 0.2);
-    return narrative(head.metricName, from, head.value);
-  }, [list]);
+  // CHANGE: remove narrativeText computation entirely (card removed)
+  // (kept here as a note so future editors know it was deliberate)
 
   // Normalize milestones to an array
   const milestonesForCategory = useMemo(() => {
@@ -297,14 +292,7 @@ export default function ProgressScreen() {
         </ul>
       </Card>
 
-      {/* Narrative */}
-      <Card className="mt-4">
-        <h2 className="text-xl font-bold">Narrative Feedback</h2>
-        <p className="mt-2 text-sm text-ink">{narrativeText}</p>
-        <p className="mt-1 text-sm text-mute">
-          Next step: focus 10 minutes on your most unlocked-but-lowest metric.
-        </p>
-      </Card>
+      {/* CHANGE: Narrative card removed to match new UX; no other layout changed */}
     </>
   );
 }
