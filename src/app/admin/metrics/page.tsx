@@ -26,7 +26,8 @@ type EditableMetric = MetricDefinition & {
 
 export default function MetricsPage() {
   // CHANGE: pull from single store
-  const { metrics, createMetric, toggleActive, updateMetric } = useMetricsStore();
+  // CHANGE (per request): import deleteMetric so removals propagate everywhere.
+  const { metrics, createMetric, toggleActive, updateMetric, deleteMetric } = useMetricsStore();
 
   // VIEW-LOCAL copy to hold drafts (we don't mutate store fields for drafts)
   const [local, setLocal] = useState<Record<string, Partial<EditableMetric>>>({});
@@ -51,8 +52,8 @@ export default function MetricsPage() {
   const canCreate =
     form.name.trim().length > 0 &&
     form.scope &&
-    form.visibility &&
-    form.target.trim().length > 0;
+    form.visibility;
+  // CHANGE (previous step): creation no longer requires "Frequency of calculation" target.
 
   /* CHANGE: append newly created metric to the shared store */
   const onCreate = () => {
@@ -91,7 +92,7 @@ export default function MetricsPage() {
       },
     }));
 
-  /* CHANGE: save inline edits back to the shared store */
+  /* CHANGE: save inline edits back to the shared store (single source of truth => updates everywhere) */
   const saveEdit = (id: string) => {
     const d = local[id] as EditableMetric | undefined;
     if (!d) return;
@@ -101,12 +102,26 @@ export default function MetricsPage() {
       description:
         (d.draftDescription ?? "").trim() ||
         metrics.find((m) => m.id === id)?.description,
-      target: (d.draftTarget ?? "").trim() || metrics.find((m) => m.id === id)?.target,
+      // NOTE: target persists unchanged; not editable in UI per request.
+      target: metrics.find((m) => m.id === id)?.target,
       visibility: (d.draftVisibility as MetricVisibility) ?? metrics.find((m) => m.id === id)?.visibility,
       scope: (d.draftScope as MetricScope) ?? metrics.find((m) => m.id === id)?.scope,
     });
 
     setLocal((prev) => ({ ...prev, [id]: { ...prev[id], editing: false } }));
+  };
+
+  /* CHANGE (per request): delete a metric everywhere via store */
+  const removeMetric = (id: string) => {
+    if (confirm("Delete this metric? This action removes it everywhere.")) {
+      deleteMetric(id);
+      // clear any local edit state for this id
+      setLocal((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
   };
 
   /* CHANGE: edit field changes are kept view-local */
@@ -148,28 +163,23 @@ export default function MetricsPage() {
               <option>Player</option>
               <option>Facilitator</option>
               <option>Teacher</option>
+              <option>Team</option> {/* CHANGE (previous step): add "Team" to create options */}
             </select>
           </div>
 
           <div>
-            <label className="block text-sm text-neutral-700">Description</label>
+            <label className="block text-sm text-neutral-700">
+              Description: What are you trying to observe? Provide as much detail as possible and one or more examples.
+            </label>
             <textarea
               className={textAreaCls}
-              placeholder="Explain how this metric is computed or what it means."
+              placeholder="Enter text"
               value={form.description}
               onChange={(e) => onFormChange("description", e.target.value)}
             />
           </div>
 
-          <div>
-            <label className="block text-sm text-neutral-700">Target</label>
-            <input
-              className={inputCls}
-              placeholder='e.g., "≥ 3.0", "≥ 80%"'
-              value={form.target}
-              onChange={(e) => onFormChange("target", e.target.value)}
-            />
-          </div>
+          {/* CHANGE (previous step): removed the "Frequency of calculation" input from the create card. */}
 
           <div>
             <label className="block text-sm text-neutral-700">Visibility</label>
@@ -222,14 +232,16 @@ export default function MetricsPage() {
                     ) : null}
                   </>
                 ) : (
-                  /* LOGIC+STYLE: pretty inline edit controls */
+                  /* CHANGE (per request): edit mode shows ONLY Name, Scope, Description, Visibility */
                   <div className="grid gap-2 sm:grid-cols-2">
+                    {/* Name */}
                     <input
                       className={inputCls}
                       value={m.draftName ?? ""}
                       onChange={(e) => onDraftChange(m.id, "draftName", e.target.value)}
                       placeholder="Name"
                     />
+                    {/* Scope (same options as create, incl. Team) */}
                     <select
                       className={inputCls}
                       value={m.draftScope ?? "Coach"}
@@ -241,13 +253,9 @@ export default function MetricsPage() {
                       <option>Player</option>
                       <option>Facilitator</option>
                       <option>Teacher</option>
+                      <option>Team</option> {/* CHANGE: add "Team" to edit options */}
                     </select>
-                    <input
-                      className={inputCls}
-                      value={m.draftTarget ?? ""}
-                      onChange={(e) => onDraftChange(m.id, "draftTarget", e.target.value)}
-                      placeholder='Target (e.g., "≥ 3.0")'
-                    />
+                    {/* Visibility */}
                     <select
                       className={inputCls}
                       value={m.draftVisibility ?? "Aggregate only (no raw clips)"}
@@ -262,6 +270,7 @@ export default function MetricsPage() {
                       <option>Aggregate only (no raw clips)</option>
                       <option>Allow clip link if coach shares</option>
                     </select>
+                    {/* Description */}
                     <textarea
                       className={cn(textAreaCls, "sm:col-span-2")}
                       value={m.draftDescription ?? ""}
@@ -270,11 +279,12 @@ export default function MetricsPage() {
                       }
                       placeholder="Description"
                     />
+                    {/* NOTE: target input intentionally removed in edit mode */}
                   </div>
                 )}
               </div>
 
-              {/* On/Off + Edit/Save */}
+              {/* On/Off + Edit/Save/Delete */}
               <div className="flex gap-2 sm:ml-3 sm:mt-0">
                 <button className={rowBtnCls} onClick={() => toggleActive(m.id)}>
                   {m.active ? "On" : "Off"}
@@ -284,9 +294,18 @@ export default function MetricsPage() {
                     Edit
                   </button>
                 ) : (
-                  <button className="btn-primary text-xs" onClick={() => saveEdit(m.id)}>
-                    Save
-                  </button>
+                  <>
+                    <button className="btn-primary text-xs" onClick={() => saveEdit(m.id)}>
+                      Save
+                    </button>
+                    {/* CHANGE (per request): Delete button; removes metric everywhere */}
+                    <button
+                      className={cn(rowBtnCls, "text-red-600")}
+                      onClick={() => removeMetric(m.id)}
+                    >
+                      Delete
+                    </button>
+                  </>
                 )}
               </div>
             </div>

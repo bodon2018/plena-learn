@@ -17,6 +17,7 @@
  * - createMetric(def)              : append a new metric
  * - toggleActive(id)               : on/off switch
  * - updateMetric(id, patch)        : inline edits
+ * - deleteMetric(id)               : remove a metric globally  // CHANGE: added delete API
  */
 
 import { useEffect, useState, useCallback } from "react";
@@ -104,5 +105,11 @@ export function useMetricsStore() {
     setMetrics((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
   }, []);
 
-  return { metrics, setMetrics, createMetric, toggleActive, updateMetric };
+  // CHANGE: delete — remove a metric everywhere that consumes this store
+  const deleteMetric = useCallback((id: string) => {
+    setMetrics((prev) => prev.filter((m) => m.id !== id));
+  }, []);
+
+  // CHANGE: export deleteMetric so UI can call it (deletes app-wide)
+  return { metrics, setMetrics, createMetric, toggleActive, updateMetric, deleteMetric };
 }

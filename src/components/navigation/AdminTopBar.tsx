@@ -1,3 +1,4 @@
+// src/components/navigation/AdminTopBar.tsx
 "use client";
 
 /* CHANGE: Top nav for Admin. Uses the same neutral styles as user AppBar.
@@ -11,7 +12,9 @@ import { cn } from "@/lib/cn";
 const LINKS = [
   { href: "/admin/account", label: "Account" },
   { href: "/admin/materials", label: "Materials" },
+  { href: "/admin/users", label: "Users" }, // (from earlier step)
   { href: "/admin/metrics", label: "Metrics" },
+  { href: "/admin/transparency", label: "Transparency" }, // CHANGE: add Transparency tab
   { href: "/admin/dashboard", label: "Dashboard" },
 ];
 
