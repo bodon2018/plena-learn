@@ -14,8 +14,8 @@ const LINKS = [
   { href: "/admin/materials", label: "Materials" },
   { href: "/admin/users", label: "Users" }, // (from earlier step)
   { href: "/admin/metrics", label: "Metrics" },
-  { href: "/admin/transparency", label: "Transparency" }, // CHANGE: add Transparency tab
   { href: "/admin/dashboard", label: "Dashboard" },
+  { href: "/admin/transparency", label: "Transparency" }, // CHANGE: add Transparency tab
 ];
 
 export default function AdminTopBar() {
