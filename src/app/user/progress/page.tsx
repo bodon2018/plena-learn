@@ -1,7 +1,13 @@
-// CHANGE: Use the new ProgressScreen (full spec) instead of the old MetricsList.
+"use client";
 
-import ProgressScreen from "@/features/progress/ProgressScreen";
 
-export default function ProgressPage() {
-  return <ProgressScreen />; // CHANGE
+import LibraryScreen from "@/features/library/LibraryScreen";
+
+/**
+ * Library page, currently routed as /user/progress.
+ * This is the shell where we will later show all recorded sessions.
+ */
+export default function LibraryPage() {
+  return <LibraryScreen />;
 }
+

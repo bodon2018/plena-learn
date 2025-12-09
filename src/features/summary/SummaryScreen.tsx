@@ -161,6 +161,7 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
 
   /**
    * On first load (and whenever mediaId changes), fetch annotations from backend.
+   * Uses /api/media/{media_id}/annotations.
    */
   useEffect(() => {
     if (!mediaId) {
@@ -172,7 +173,7 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
     setAnnotationsLoading(true);
     setAnnotationError(null);
 
-    fetch(`${base}/media/${mediaId}/annotations`)
+    fetch(`${base}/api/media/${mediaId}/annotations`)
       .then(async (res) => {
         if (!res.ok) {
           throw new Error(`Failed to load annotations: ${res.status}`);
@@ -207,6 +208,7 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
    * Helper to create an annotation on the backend when we have a mediaId.
    * Converts seconds -> milliseconds and maps the response back into
    * the frontend Annotation shape (timestamp in seconds).
+   * Uses /api/media/{media_id}/annotations.
    */
   const createAnnotationOnServer = async (
     kind: AnnotationKind,
@@ -221,7 +223,7 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
     const base = getApiBaseUrl();
     const timestamp_ms = Math.round(timestampSec * 1000);
 
-    const res = await fetch(`${base}/media/${mediaId}/annotations`, {
+    const res = await fetch(`${base}/api/media/${mediaId}/annotations`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -251,7 +253,7 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
 
   /**
    * Add a bookmark at the current playback time.
-   * First tries to persist it via POST /media/{id}/annotations;
+   * First tries to persist it via POST /api/media/{id}/annotations;
    * if that fails or we have no mediaId, we still keep it locally.
    */
   const handleAddBookmark = async () => {
@@ -366,10 +368,10 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
     [annotations],
   );
 
-  // --- empty state -----------------------------------------------------------
+  // --- empty state / fallback -----------------------------------------------
 
- const hasMedia = !!mediaId && !!mediaUrl;
-
+  // Require both mediaId and mediaUrl to treat as a valid session
+  const hasMedia = !!mediaId && !!mediaUrl;
 
   const minutes = Math.floor(currentTime / 60);
   const seconds = Math.floor(currentTime % 60);

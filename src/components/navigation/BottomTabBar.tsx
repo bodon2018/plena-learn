@@ -8,13 +8,12 @@ import { Home, Activity, Mic, BarChart } from "lucide-react";
 export default function BottomNav() {
   const pathname = usePathname();
 
-  // Route paths stay the same; we only rename the user-facing label.
+  // CHANGE: Progress tab is now "Library". Routes stay the same for now.
   const navItems = [
     { href: "/user/account", label: "Account", icon: Home },
-    { href: "/user/progress", label: "Progress", icon: Activity },
+    { href: "/user/progress", label: "Library", icon: Activity }, // CHANGED LABEL
     { href: "/user/session", label: "Session", icon: Mic },
-    // CHANGED: label "Summary" -> "Learn" (href stays /user/summary)
-    { href: "/user/summary", label: "Learn", icon: BarChart },
+    { href: "/user/summary", label: "Learn", icon: BarChart }, // already updated before
   ];
 
   return (
