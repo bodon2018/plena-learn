@@ -356,7 +356,7 @@ export default function SummaryScreen({}: Props) {
         </div>
       </Card>
 
-      {/* ===== Learn with your data (chat) ===== */}
+      {/* ===== Learn with your data (chat) TD: replace learn with your data with a prompt that makes coaches reflect ===== */}
       <Card className="mt-4">
         <h2 className="text-xl font-bold">Learn with your data</h2>
 
