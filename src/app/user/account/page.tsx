@@ -13,8 +13,8 @@ export default function AccountPage() {
         <p className="text-sm text-neutral-600">Manage your display name and email.</p>
       </div>
       <div className="rounded-2xl border p-4">
-        <h2 className="font-semibold">Payment</h2>
-        <p className="text-sm text-neutral-600">Manage billing, plan, and invoices.</p>
+        <h2 className="font-semibold">Subscription</h2>
+        <p className="text-sm text-neutral-600">Manage your plan.</p>
       </div>
       <div className="rounded-2xl border p-4">
         <h2 className="font-semibold">Settings</h2>

@@ -8,12 +8,13 @@ import { Home, Activity, Mic, BarChart } from "lucide-react";
 export default function BottomNav() {
   const pathname = usePathname();
 
-  // CHANGE: All hrefs now include the "/user" segment
+  // Route paths stay the same; we only rename the user-facing label.
   const navItems = [
-    { href: "/user/account",  label: "Account",  icon: Home },
+    { href: "/user/account", label: "Account", icon: Home },
     { href: "/user/progress", label: "Progress", icon: Activity },
-    { href: "/user/session",  label: "Session",  icon: Mic },
-    { href: "/user/summary",  label: "Summary",  icon: BarChart },
+    { href: "/user/session", label: "Session", icon: Mic },
+    // CHANGED: label "Summary" -> "Learn" (href stays /user/summary)
+    { href: "/user/summary", label: "Learn", icon: BarChart },
   ];
 
   return (
@@ -27,12 +28,12 @@ export default function BottomNav() {
               <Link
                 href={item.href}
                 className={cn(
-                  "flex h-14 w-20 flex-col items-center justify-center gap-1 text-[11px]",
-                  active ? "text-blue-600" : "text-neutral-500"
+                  "flex flex-col items-center gap-0.5 px-3 py-2 text-xs",
+                  active ? "text-primary" : "text-neutral-400",
                 )}
               >
                 <Icon className="h-5 w-5" />
-                <span className="leading-none">{item.label}</span>
+                <span>{item.label}</span>
               </Link>
             </li>
           );

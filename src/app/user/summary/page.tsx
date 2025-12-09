@@ -1,20 +1,17 @@
 "use client";
 
-/**
- * CHANGE: Remove legacy metrics injection from session store.
- * SummaryScreen now resolves metrics from the admin-defined source (useMetricsStore),
- * with graceful placeholders when none exist.
- */
-
+import { useSearchParams } from "next/navigation";
 import SummaryScreen from "@/features/summary/SummaryScreen";
-// NOTE: session store is no longer needed here for metrics/category.
-// import { useSessionStore } from "@/store/sessionStore";
 
+/**
+ * Learn page (routed as /user/summary).
+ * Reads mediaId/mediaUrl from the query string so we can
+ * review the recording that was just finished.
+ */
 export default function SummaryPage() {
-  // OLD (removed):
-  // const category = useSessionStore((s) => s.category);
-  // const metrics  = useSessionStore((s) => s.getMetrics()) ?? [];
+  const searchParams = useSearchParams();
+  const mediaId = searchParams.get("mediaId");
+  const mediaUrl = searchParams.get("mediaUrl");
 
-  // NEW: render SummaryScreen with no legacy props so it binds to admin metrics.
-  return <SummaryScreen />;
+  return <SummaryScreen mediaId={mediaId} mediaUrl={mediaUrl} />;
 }
