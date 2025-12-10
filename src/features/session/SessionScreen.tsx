@@ -295,8 +295,9 @@ export default function SessionScreen({ onFinish }: Props) {
             extension: "webm",
             kind: mode,
             mimeType,
-            // The backend ignores this today; we can wire it into a model later.
             context: sessionContext,
+            // Explicit recordingMode so backend can store audio vs video cleanly
+            recordingMode: mode,
           }),
         );
 
@@ -418,21 +419,40 @@ export default function SessionScreen({ onFinish }: Props) {
 
   /**
    * Cleanup when the user navigates away from this page.
-   * This prevents the camera/mic from staying active in the background.
+   * This runs only on unmount and releases all media + network resources.
    */
-  useEffect(
-    () => () => {
-      if (recording) {
-        stopRecording();
+  useEffect(() => {
+    return () => {
+      // Stop the timer if it is still running
+      stopTimer();
+
+      // Stop the media recorder if active
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        recorder.stop();
       }
+      mediaRecorderRef.current = null;
+
+      // Release camera/mic tracks
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+
+      // Clear video preview
+      if (videoRef.current) {
+        videoRef.current.pause();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (videoRef.current as any).srcObject = null;
+      }
+
+      // Close the WebSocket if it is still open
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [recording],
-  );
+    };
+  }, []);
 
   const minutes = Math.floor(durationSec / 60);
   const seconds = durationSec % 60;
