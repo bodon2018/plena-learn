@@ -1,429 +1,277 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppBar from "@/components/navigation/AppBar";
 import Card from "@/components/ui/Card";
+import { Film, Mic, Trash2, ExternalLink, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 /**
- * Shape of a media item as returned by the backend /api/media endpoint.
- * Mirrors MediaFileRead in the FastAPI backend.
+ * Base URL for talking to the FastAPI backend.
+ * In dev, set NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+ */
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000";
+
+/**
+ * Shape of media records coming back from /api/media.
+ * This aligns with MediaFileRead on the backend.
  */
 type MediaItem = {
   id: number;
   filename: string;
   filepath: string;
-  media_type: string; // "upload" | "record"
+  media_type: string;
   mime_type?: string | null;
-  created_at: string; // ISO datetime string
+  created_at: string;
   url?: string | null;
-
-  // Extra metadata for Library
-  session_context?: string | null;  // "practice" | "game" | null
-  recording_mode?: string | null;   // "audio" | "video" | null
+  session_context?: "practice" | "game" | null;
+  recording_mode?: "audio" | "video" | null;
 };
 
 /**
- * Helper: base URL for the FastAPI backend.
- * In dev, set NEXT_PUBLIC_API_BASE_URL to http://127.0.0.1:8000
+ * Format a date string into a compact label for the card.
  */
-function getApiBaseUrl() {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
-}
-
-/**
- * Helper: format a date into a label ("Today", "Yesterday", or "MMM d, yyyy").
- * This is used as the group header in the Library list.
- */
-function formatDateLabel(d: Date): string {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const thatDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diffMs = thatDay.getTime() - today.getTime();
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return "Today";
-  if (diffDays === -1) return "Yesterday";
-
-  return d.toLocaleDateString(undefined, {
+function formatDateLabel(input: string): string {
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
-    year: "numeric",
-  });
-}
-
-/**
- * Helper: format a time-of-day for each recording row, e.g. "3:45 PM".
- */
-function formatTimeOfDay(d: Date): string {
-  return d.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
   });
 }
 
 /**
- * Helper: derive a simple media type label (Audio / Video / Media) from MIME type
- * and/or recording_mode when available.
+ * Pick a human-readable label for the context (practice/game/unknown).
  */
-function deriveMediaKindLabel(item: MediaItem): string {
-  if (item.recording_mode === "video") return "Video";
-  if (item.recording_mode === "audio") return "Audio";
-
-  const mime = item.mime_type || "";
-  if (mime.startsWith("video/")) return "Video";
-  if (mime.startsWith("audio/")) return "Audio";
-  return "Media";
-}
-
-/**
- * Helper: format session context into a display label.
- */
-function formatSessionContextLabel(ctx?: string | null): string | null {
-  if (!ctx) return null;
-  const v = ctx.toLowerCase();
-  if (v === "practice") return "Practice";
-  if (v === "game") return "Game";
+function formatContextLabel(ctx?: string | null): string {
+  if (!ctx) return "Session";
+  if (ctx === "practice") return "Practice";
+  if (ctx === "game") return "Game";
   return ctx;
 }
 
 /**
- * Helper: group media items by date label for the Library UI.
- * Items are assumed to be sorted descending by created_at from the backend.
+ * Compute a playback URL for a media item.
+ * - Prefer the backend-provided `url` when present.
+ * - As a fallback, derive a Google Drive preview URL from `filepath`
+ *   if it looks like a Drive file id.
  */
-function groupMediaByDate(items: MediaItem[]): { label: string; items: MediaItem[] }[] {
-  const groups: Record<string, MediaItem[]> = {};
-
-  for (const item of items) {
-    const created = new Date(item.created_at);
-    const label = formatDateLabel(created);
-    if (!groups[label]) {
-      groups[label] = [];
-    }
-    groups[label].push(item);
+function getMediaUrl(item: MediaItem): string | null {
+  if (item.url && item.url.trim()) {
+    return item.url.trim();
   }
 
-  const orderedLabels = Object.keys(groups);
-  return orderedLabels.map((label) => ({
-    label,
-    items: groups[label],
-  }));
-}
-
-/**
- * Helper: compute a playback URL for Learn.
- * Prefer `item.url`, then filepath if it is already a URL, then treat
- * filepath as a Google Drive file id as a last resort.
- */
-function getPlaybackUrl(item: MediaItem): string | null {
-  if (item.url) return item.url;
   const path = item.filepath || "";
   if (!path) return null;
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  // Fallback: Drive-style preview link using the file id
+
+  // If filepath already looks like a full URL, use it directly.
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+
+  // Otherwise assume it's a Google Drive file id.
   return `https://drive.google.com/file/d/${path}/preview`;
 }
 
-type ContextFilter = "all" | "practice" | "game";
-type ModeFilter = "all" | "audio" | "video";
-
 /**
- * LibraryScreen
- *
- * - Fetches list of recordings from /api/media on mount.
- * - Shows them grouped by date with basic metadata (mode + context).
- * - Provides simple filters (Practice/Game, Audio/Video) and text search.
- * - Clicking a row takes you to Learn with mediaId/mediaUrl in the query string.
+ * Main Library screen: lists recorded sessions and supports deletion.
  */
 export default function LibraryScreen() {
-  const [media, setMedia] = useState<MediaItem[]>([]);
+  const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters (Step 9)
-  const [contextFilter, setContextFilter] = useState<ContextFilter>("all");
-  const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  // Track which item is currently being deleted so we can disable its button.
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   /**
-   * Load recordings from backend.
-   * This calls GET /api/media and stores the result in state.
+   * Load recordings from the backend.
+   * By default we only request media_type=record (session recordings).
    */
-  const loadMedia = async () => {
+  const fetchLibrary = async () => {
     setLoading(true);
     setError(null);
-
     try {
-      const base = getApiBaseUrl();
-      const res = await fetch(`${base}/api/media`, {
-        method: "GET",
-      });
-
+      const res = await fetch(`${API_BASE}/api/media?media_type=record`);
       if (!res.ok) {
-        throw new Error(`Failed to load media: ${res.status}`);
+        console.error("Failed to load media", res.status);
+        throw new Error("Media fetch failed");
       }
-
-      const data = (await res.json()) as MediaItem[];
-      setMedia(Array.isArray(data) ? data : []);
+      const json = (await res.json()) as MediaItem[];
+      setItems(json);
     } catch (err) {
-      console.error(err);
-      setError("Could not load your recordings from the server.");
-      setMedia([]);
+      console.error("Error loading media", err);
+      setError("Could not load your sessions. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch once on mount
+  // Load once on mount.
   useEffect(() => {
-    void loadMedia();
+    void fetchLibrary();
   }, []);
 
-  const hasRecordings = media.length > 0;
-
   /**
-   * Apply filters + search on the client side.
+   * Delete a media record from the local database.
+   * This calls DELETE /api/media/{id} which:
+   * - Removes the media row from `media_files`
+   * - Removes all annotations for that media
+   * - Does NOT delete the underlying file from Google Drive
    */
-  const filteredMedia = useMemo(() => {
-    if (!media.length) return [];
+  const handleDelete = async (id: number) => {
+    const item = items.find((m) => m.id === id);
+    const label = item?.filename ?? `recording #${id}`;
 
-    const query = searchQuery.trim().toLowerCase();
+    const ok = window.confirm(
+      `Delete this session from your Library?\n\n${label}\n\nThis will remove it from the app and delete its annotations, but will not delete the underlying file from Google Drive.`,
+    );
+    if (!ok) return;
 
-    return media.filter((item) => {
-      // Context filter
-      if (contextFilter !== "all") {
-        const ctx = (item.session_context || "").toLowerCase();
-        if (ctx !== contextFilter) return false;
+    setDeletingId(id);
+    setError(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/media/${encodeURIComponent(String(id))}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        console.error("Failed to delete media", res.status);
+        throw new Error("Delete failed");
       }
 
-      // Mode filter
-      if (modeFilter !== "all") {
-        const mode = (item.recording_mode || "").toLowerCase();
-        if (mode !== modeFilter) return false;
-      }
-
-      // Search filter (filename)
-      if (query) {
-        const name = (item.filename || "").toLowerCase();
-        if (!name.includes(query)) return false;
-      }
-
-      return true;
-    });
-  }, [media, contextFilter, modeFilter, searchQuery]);
-
-  const hasFilteredResults = filteredMedia.length > 0;
-
-  // Group recordings by date label for display (after filters)
-  const grouped = useMemo(() => groupMediaByDate(filteredMedia), [filteredMedia]);
+      // Optimistically remove from local list.
+      setItems((prev) => prev.filter((m) => m.id !== id));
+    } catch (err) {
+      console.error("Error deleting media", err);
+      setError("Could not delete that session. Please try again.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <>
-      {/* Top bar label: "Library" (route is still /user/progress) */}
       <AppBar title="Library" />
 
-      <div className="mt-4 space-y-4">
-        {/* High-level status / empty / error card */}
-        <Card>
-          <h2 className="mb-2 text-lg font-semibold">Your recordings</h2>
+      <Card className="mb-4">
+        <h2 className="text-lg font-semibold">Recorded sessions</h2>
+        <p className="mt-1 text-sm text-neutral-600">
+          Review your recorded practices and games. Open a session in Learn to annotate it,
+          or delete it from your Library if you no longer need it.
+        </p>
+      </Card>
 
-          {loading && <p className="text-sm text-neutral-600">Loading recordings…</p>}
+      {error && (
+        <div className="mb-3 rounded-2xl border border-danger/40 bg-danger/5 px-4 py-2 text-sm text-danger">
+          {error}
+        </div>
+      )}
 
-          {!loading && error && (
-            <div className="space-y-2">
-              <p className="text-sm text-amber-800">{error}</p>
-              <button
-                type="button"
-                onClick={loadMedia}
-                className="rounded-full bg-primary px-4 py-2 text-xs font-medium text-white"
-              >
-                Try again
-              </button>
-            </div>
-          )}
+      {loading && (
+        <div className="flex items-center gap-2 text-sm text-neutral-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading sessions…
+        </div>
+      )}
 
-          {!loading && !error && !hasRecordings && (
-            <div className="space-y-3">
-              <p className="text-sm text-neutral-600">
-                You do not have any recordings yet. Once you record a game or practice, it will show
-                up here by date.
-              </p>
-              <Link
-                href="/user/session"
-                className="inline-flex items-center justify-center rounded-full bg-primary px-4 py-2 text-xs font-medium text-white"
-              >
-                Go to Session
-              </Link>
-            </div>
-          )}
+      {!loading && !items.length && !error && (
+        <p className="text-sm text-neutral-500">
+          You do not have any recorded sessions yet. Start a new session to see recordings
+          appear here.
+        </p>
+      )}
 
-          {/* Filters + basic stats (only when there is at least one recording) */}
-          {!loading && !error && hasRecordings && (
-            <div className="space-y-3">
-              <p className="text-sm text-neutral-600">
-                You have{" "}
-                <span className="font-semibold">
-                  {media.length} recording{media.length === 1 ? "" : "s"}
-                </span>
-                . Use filters to focus on the sessions you want to review.
-              </p>
+      <div className="mt-2 space-y-3">
+        {items.map((item) => {
+          const url = getMediaUrl(item);
+          const isVideo = (item.recording_mode ?? "").toLowerCase() === "video";
+          const isAudio = (item.recording_mode ?? "").toLowerCase() === "audio";
 
-              {/* Filters row */}
-              <div className="space-y-2 rounded-2xl bg-neutral-50 p-3 text-xs">
-                {/* Context filter */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-neutral-500">Context:</span>
-                  {(["all", "practice", "game"] as const).map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setContextFilter(value)}
-                      className={cn(
-                        "rounded-full px-3 py-1",
-                        contextFilter === value
-                          ? "bg-primary text-white"
-                          : "bg-white text-neutral-700 border border-neutral-200",
-                      )}
-                    >
-                      {value === "all" ? "All" : value === "practice" ? "Practice" : "Game"}
-                    </button>
-                  ))}
-                </div>
+          const contextLabel = formatContextLabel(item.session_context);
+          const createdLabel = formatDateLabel(item.created_at);
 
-                {/* Mode filter */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-neutral-500">Type:</span>
-                  {(["all", "audio", "video"] as const).map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setModeFilter(value)}
-                      className={cn(
-                        "rounded-full px-3 py-1",
-                        modeFilter === value
-                          ? "bg-primary text-white"
-                          : "bg-white text-neutral-700 border border-neutral-200",
-                      )}
-                    >
-                      {value === "all" ? "All" : value === "audio" ? "Audio" : "Video"}
-                    </button>
-                  ))}
-                </div>
+          // Nicer display name instead of raw filename.
+          const displayName =
+            contextLabel && contextLabel !== "Session"
+              ? `${contextLabel} session`
+              : createdLabel
+              ? `Session on ${createdLabel}`
+              : "Recorded session";
 
-                {/* Search input */}
+          return (
+            <Card key={item.id} className="flex flex-col gap-2">
+              {/* Header row: context + created date */}
+              <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-neutral-500">Search:</span>
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by file name…"
-                    className="flex-1 rounded-full border border-neutral-200 px-3 py-1 text-xs"
-                  />
+                  <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-700">
+                    {contextLabel}
+                  </span>
+                  {isVideo && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+                      <Film className="h-3 w-3" />
+                      Video
+                    </span>
+                  )}
+                  {isAudio && !isVideo && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                      <Mic className="h-3 w-3" />
+                      Audio
+                    </span>
+                  )}
                 </div>
-
-                {/* Filtered count */}
-                <div className="text-[11px] text-neutral-500">
-                  Showing{" "}
-                  <span className="font-semibold">
-                    {filteredMedia.length} recording{filteredMedia.length === 1 ? "" : "s"}
-                  </span>{" "}
-                  after filters.
-                </div>
+                {createdLabel && (
+                  <span className="text-xs text-neutral-500">{createdLabel}</span>
+                )}
               </div>
 
-              {/* No results for current filters */}
-              {!hasFilteredResults && (
-                <div className="rounded-2xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  No recordings match your current filters. Try clearing some filters or searching
-                  for a different file name.
+              {/* Clean title instead of full filename */}
+              <div className="text-sm font-medium text-neutral-900">{displayName}</div>
+
+              {/* Actions row: Open in Learn + Delete */}
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Open in Learn (annotation view) */}
+                  <Link
+                    href={
+                      url
+                        ? `/user/summary?mediaId=${item.id}&mediaUrl=${encodeURIComponent(
+                            url,
+                          )}`
+                        : `/user/summary?mediaId=${item.id}`
+                    }
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium",
+                      "hover:border-primary hover:text-primary",
+                    )}
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Open in Learn
+                  </Link>
                 </div>
-              )}
-            </div>
-          )}
-        </Card>
 
-        {/* Grouped list of recordings (only when we have filtered results) */}
-        {!loading &&
-          !error &&
-          hasRecordings &&
-          hasFilteredResults &&
-          grouped.map((group) => (
-            <div key={group.label} className="space-y-2">
-              {/* Date header, e.g., "Today", "Yesterday", "Dec 9, 2025" */}
-              <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                {group.label}
-              </h3>
-
-              <Card>
-                <ul className="divide-y divide-neutral-100">
-                  {group.items.map((item) => {
-                    const created = new Date(item.created_at);
-                    const timeOfDay = formatTimeOfDay(created);
-                    const kindLabel = deriveMediaKindLabel(item);
-                    const contextLabel = formatSessionContextLabel(item.session_context);
-                    const metaParts = ["Recorded session", kindLabel].concat(
-                      contextLabel ? [contextLabel] : [],
-                    );
-
-                    const playbackUrl = getPlaybackUrl(item);
-                    const clickable = !!playbackUrl;
-
-                    const content = (
-                      <div className="flex items-center justify-between gap-3">
-                        {/* Left side: time and filename */}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-[11px] text-neutral-500">
-                              {timeOfDay}
-                            </span>
-                            <span className="line-clamp-1 text-sm font-medium text-neutral-900">
-                              {item.filename}
-                            </span>
-                          </div>
-                          <div className="mt-1 text-xs text-neutral-500">
-                            {metaParts.join(" · ")}
-                          </div>
-                        </div>
-
-                        {/* Right side: chip showing media_type */}
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2 py-1 text-[10px] font-semibold",
-                            "bg-neutral-100 text-neutral-700",
-                          )}
-                        >
-                          {item.media_type === "record" ? "Recorded" : "Uploaded"}
-                        </span>
-                      </div>
-                    );
-
-                    return (
-                      <li key={item.id} className="py-3">
-                        {clickable ? (
-                          <Link
-                            href={{
-                              pathname: "/user/summary",
-                              query: {
-                                mediaId: item.id,
-                                mediaUrl: playbackUrl ?? "",
-                              },
-                            }}
-                            className="block"
-                          >
-                            {content}
-                          </Link>
-                        ) : (
-                          <div className="opacity-70">{content}</div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </Card>
-            </div>
-          ))}
+                {/* Delete from Library (DB), keep file on Drive */}
+                <button
+                  type="button"
+                  onClick={() => handleDelete(item.id)}
+                  disabled={deletingId === item.id}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium",
+                    "border border-danger/40 text-danger hover:bg-danger/5 disabled:opacity-50",
+                  )}
+                >
+                  <Trash2 className="h-3 w-3" />
+                  {deletingId === item.id ? "Deleting…" : "Delete"}
+                </button>
+              </div>
+            </Card>
+          );
+        })}
       </div>
     </>
   );
