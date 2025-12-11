@@ -1,5 +1,5 @@
 // CHANGE: Store now also holds simple mock progress & unlock state for each metric.
-// This keeps pages consistent and lets Progress/Session/Summary read the same source.
+// This keeps pages consistent and lets Progress/Session/Learn read the same source.
 
 import { create } from "zustand";
 import { CATEGORIES, METRICS_BY_CATEGORY } from "@/lib/constants";

@@ -18,7 +18,7 @@ export const METRICS_BY_CATEGORY: Record<string, string[]> = {
     "Confidence markers",
   ],
   "Executive Briefing": [
-    "Clarity of summary (BLUF)",
+    "Clarity of learn (BLUF)",
     "Explicit decision request",
     "Tradeoff articulation",
   ],

@@ -13,7 +13,7 @@ export default function BottomNav() {
     { href: "/user/account", label: "Account", icon: Home },
     { href: "/user/progress", label: "Library", icon: Activity }, // CHANGED LABEL
     { href: "/user/session", label: "Session", icon: Mic },
-    { href: "/user/summary", label: "Learn", icon: BarChart }, // already updated before
+    { href: "/user/learn", label: "Learn", icon: BarChart }, // already updated before
   ];
 
   return (

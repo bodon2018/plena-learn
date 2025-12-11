@@ -240,10 +240,10 @@ export default function LibraryScreen() {
                   <Link
                     href={
                       url
-                        ? `/user/summary?mediaId=${item.id}&mediaUrl=${encodeURIComponent(
+                        ? `/user/learn?mediaId=${item.id}&mediaUrl=${encodeURIComponent(
                             url,
                           )}`
-                        : `/user/summary?mediaId=${item.id}`
+                        : `/user/learn?mediaId=${item.id}`
                     }
                     className={cn(
                       "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium",

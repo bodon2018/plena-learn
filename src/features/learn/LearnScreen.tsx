@@ -9,7 +9,7 @@ import { cn } from "@/lib/cn";
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000";
 
-type SummaryProps = {
+type LearnProps = {
   /** Media id coming from the query string, e.g. ?mediaId=8 */
   mediaId: string | null;
   /** Media URL coming from the query string, e.g. Drive link or /media/... path */
@@ -55,7 +55,7 @@ function normalizeMediaUrl(url: string | null): string | null {
   return `${base}/${url}`;
 }
 
-export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
+export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
   // ---------------------------------------------------------------------------
   // Playback state
   // ---------------------------------------------------------------------------

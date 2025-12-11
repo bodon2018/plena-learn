@@ -195,14 +195,14 @@ export default function SessionScreen({ onFinish }: Props) {
   // --- Navigation helper -----------------------------------------------------
 
   /**
-   * Navigate to the Learn tab (currently /user/summary).
+   * Navigate to the Learn tab (currently /user/learn).
    * If we have media info, pass mediaId and mediaUrl via query params
    * so Learn can open the exact recording.
    */
   const goToLearn = (media?: SavedMedia | null) => {
-    let path = "/user/summary";
+    let path = "/user/learn";
     if (media) {
-      const base = `/user/summary?mediaId=${media.id}`;
+      const base = `/user/learn?mediaId=${media.id}`;
       if (media.url) {
         path = `${base}&mediaUrl=${encodeURIComponent(media.url)}`;
       } else {
