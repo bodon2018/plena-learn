@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppBar from "@/components/navigation/AppBar";
 import Card from "@/components/ui/Card";
-import { Bookmark, Play, Pause, RotateCcw } from "lucide-react";
+import { Bookmark } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const API_BASE =
@@ -12,7 +12,7 @@ const API_BASE =
 type SummaryProps = {
   /** Media id coming from the query string, e.g. ?mediaId=8 */
   mediaId: string | null;
-  /** Media URL coming from the query string, e.g. Drive or /media/... link */
+  /** Media URL coming from the query string, e.g. Drive link or /media/... path */
   mediaUrl: string | null;
 };
 
@@ -29,9 +29,7 @@ type Annotation = {
   created_at?: string;
 };
 
-/**
- * Convert seconds from the media element into a mm:ss label.
- */
+/** Format seconds from <video>/<audio> into mm:ss. */
 function formatTimeLabel(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const whole = Math.floor(seconds);
@@ -40,59 +38,47 @@ function formatTimeLabel(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Normalize any media URL so the browser can actually reach it:
+ * - If it already starts with http/https, use it as-is.
+ * - If it is a relative path (e.g. "/media/recordings/…"), prefix API_BASE.
+ */
+function normalizeMediaUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) {
+    return url;
+  }
+  const base = API_BASE.replace(/\/$/, "");
+  if (url.startsWith("/")) {
+    return `${base}${url}`;
+  }
+  return `${base}/${url}`;
+}
+
 export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
   // ---------------------------------------------------------------------------
   // Playback state
   // ---------------------------------------------------------------------------
 
-  // URL that we actually want to play (may come from query or from /api/media)
-  const [resolvedUrl, setResolvedUrl] = useState<string | null>(mediaUrl);
-  // For now we default to video; <video> can play audio too.
-  const [isVideo] = useState<boolean>(true);
-  const [playing, setPlaying] = useState(false);
+  /** Final URL we will hand to the media element (query param or resolved from API). */
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(
+    normalizeMediaUrl(mediaUrl),
+  );
+  /** Whether we should render <video> (true) or <audio> (false). */
+  const [isVideo, setIsVideo] = useState<boolean>(true);
+  /** Current playback time, driven by native media events. */
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
+  /** Media duration in seconds. */
   const [durationSec, setDurationSec] = useState(0);
 
-  // Single ref that will point to either <video> or <audio>
-  const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
-
   /**
-   * Attach ref for either <video> or <audio> without fighting TS
-   * union types. React will call this with the underlying element.
+   * Single ref that points to either <video> or <audio>.
+   * We rely on native controls; we only read currentTime and seek on it.
    */
+  const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const attachMediaRef = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     mediaRef.current = el;
   };
-
-  /**
-   * The actual src we hand to the <video>/<audio> element.
-   *
-   * - If resolvedUrl is /media/..., we prefix API_BASE so it hits FastAPI.
-   * - If resolvedUrl is some other relative path (e.g. recordings/...), we
-   *   also prefix API_BASE.
-   * - If resolvedUrl is already absolute (http/https), we leave it alone.
-   */
-  const playbackSrc = useMemo(() => {
-    if (!resolvedUrl) return null;
-
-    const trimmed = resolvedUrl.trim();
-    if (!trimmed) return null;
-
-    const isAbsolute =
-      trimmed.startsWith("http://") || trimmed.startsWith("https://");
-
-    // Already a full URL – use as-is (covers old Drive URLs)
-    if (isAbsolute) return trimmed;
-
-    // If it starts with /media, prefix API_BASE
-    if (trimmed.startsWith("/media")) {
-      return `${API_BASE}${trimmed}`;
-    }
-
-    // Any other relative path – assume it lives under FastAPI
-    // e.g. "recordings/foo.mp4" -> "http://127.0.0.1:8000/recordings/foo.mp4"
-    return `${API_BASE}/${trimmed.replace(/^\/+/, "")}`;
-  }, [resolvedUrl]);
 
   // ---------------------------------------------------------------------------
   // Annotation state
@@ -101,21 +87,20 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [annotationsLoading, setAnnotationsLoading] = useState(false);
   const [annotationsError, setAnnotationsError] = useState<string | null>(null);
-
   const [noteDraft, setNoteDraft] = useState("");
 
   // ---------------------------------------------------------------------------
-  // Resolve media URL if one was not provided in the query string
+  // Resolve media URL if one was not provided
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    // If the caller already gave us a URL, trust it.
+    // If the caller already gave us a URL, normalize and use it.
     if (mediaUrl) {
-      setResolvedUrl(mediaUrl);
+      setResolvedUrl(normalizeMediaUrl(mediaUrl));
       return;
     }
 
-    // If no id, we cannot resolve anything.
+    // If there is no id, we have nothing to resolve.
     if (!mediaId) {
       setResolvedUrl(null);
       return;
@@ -132,13 +117,11 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
           console.error("Failed to list media for URL resolution", res.status);
           return;
         }
-        const list = (await res.json()) as Array<{
-          id: number;
-          url?: string | null;
-        }>;
+
+        const list = (await res.json()) as Array<{ id: number; url?: string | null }>;
         const match = list.find((m) => String(m.id) === String(mediaId));
         if (match?.url) {
-          setResolvedUrl(match.url);
+          setResolvedUrl(normalizeMediaUrl(match.url));
         }
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
@@ -152,20 +135,33 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
   }, [mediaId, mediaUrl]);
 
   // ---------------------------------------------------------------------------
+  // Decide whether this URL is more likely audio or video
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!resolvedUrl) {
+      setIsVideo(true);
+      return;
+    }
+    const lower = resolvedUrl.toLowerCase();
+    const audioLike = /\.(mp3|wav|m4a|aac|ogg)(\?|$)/.test(lower);
+    // For Google Drive preview links (no extension) we treat as video by default.
+    setIsVideo(!audioLike);
+  }, [resolvedUrl]);
+
+  // ---------------------------------------------------------------------------
   // Load annotations for this media id
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    // If we have no media id yet, clear list and error.
     if (!mediaId) {
       setAnnotations([]);
       setAnnotationsError(null);
       return;
     }
 
-    const id: string = mediaId;
+    const id: string = mediaId; // stable copy for closure
     const controller = new AbortController();
-
     setAnnotationsLoading(true);
     setAnnotationsError(null);
 
@@ -195,12 +191,11 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
     }
 
     void loadAnnotations(id);
-
     return () => controller.abort();
   }, [mediaId]);
 
   // ---------------------------------------------------------------------------
-  // Media element handlers
+  // Media element event handlers (native controls do the heavy lifting)
   // ---------------------------------------------------------------------------
 
   const handleLoadedMetadata = () => {
@@ -215,38 +210,11 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
     setCurrentTimeSec(el.currentTime || 0);
   };
 
-  const handlePlay = () => {
-    const el = mediaRef.current;
-    if (!el) return;
-    el.play().catch((err) => {
-      console.error("Failed to play media", err);
-    });
-    setPlaying(true);
-  };
-
-  const handlePause = () => {
-    const el = mediaRef.current;
-    if (!el) return;
-    el.pause();
-    setPlaying(false);
-  };
-
-  const handleTogglePlay = () => {
-    const el = mediaRef.current;
-    if (!el) return;
-    if (el.paused) handlePlay();
-    else handlePause();
-  };
-
+  /** Seek to a specific time in seconds (used when clicking an annotation). */
   const handleSeek = (targetSeconds: number) => {
     const el = mediaRef.current;
     if (!el || !Number.isFinite(targetSeconds)) return;
     el.currentTime = Math.max(0, targetSeconds);
-  };
-
-  const handleRestart = () => {
-    handleSeek(0);
-    handlePlay();
   };
 
   // ---------------------------------------------------------------------------
@@ -257,12 +225,6 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
     () => Math.round(currentTimeSec * 1000),
     [currentTimeSec],
   );
-
-  const handleJumpToAnnotation = (ann: Annotation) => {
-    const seconds = (ann.timestamp_ms ?? 0) / 1000;
-    handleSeek(seconds);
-    handlePlay();
-  };
 
   const postAnnotation = async (payload: {
     kind: "bookmark" | "note";
@@ -323,6 +285,11 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
     setNoteDraft("");
   };
 
+  const handleJumpToAnnotation = (ann: Annotation) => {
+    const seconds = (ann.timestamp_ms ?? 0) / 1000;
+    handleSeek(seconds);
+  };
+
   const sortedAnnotations = useMemo(
     () =>
       [...annotations].sort((a, b) => {
@@ -345,83 +312,41 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
     <>
       <AppBar title="Learn" />
 
-      {/* Annotate card: media player + controls */}
+      {/* Media player + annotate controls */}
       <Card className="mb-4">
         <h2 className="mb-3 text-lg font-semibold">Annotate your session</h2>
 
-        {playbackSrc ? (
+        {resolvedUrl ? (
           <div className="space-y-3">
             <div className="overflow-hidden rounded-2xl bg-black">
               {isVideo ? (
                 <video
                   ref={attachMediaRef}
-                  src={playbackSrc}
+                  src={resolvedUrl}
                   className="h-full w-full max-h-[260px] object-contain bg-black"
                   controls
                   onLoadedMetadata={handleLoadedMetadata}
                   onTimeUpdate={handleTimeUpdate}
-                  onPlay={() => setPlaying(true)}
-                  onPause={() => setPlaying(false)}
                   playsInline
                 />
               ) : (
                 <audio
                   ref={attachMediaRef}
-                  src={playbackSrc}
+                  src={resolvedUrl}
                   className="w-full"
                   controls
                   onLoadedMetadata={handleLoadedMetadata}
                   onTimeUpdate={handleTimeUpdate}
-                  onPlay={() => setPlaying(true)}
-                  onPause={() => setPlaying(false)}
                 />
               )}
             </div>
 
-            {/* Playback + timestamp row */}
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleTogglePlay}
-                  className={cn(
-                    "grid h-9 w-9 place-items-center rounded-full border",
-                    playing ? "bg-primary text-white" : "text-neutral-700",
-                  )}
-                >
-                  {playing ? (
-                    <Pause className="h-4 w-4" />
-                  ) : (
-                    <Play className="h-4 w-4" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRestart}
-                  className="grid h-8 w-8 place-items-center rounded-full border text-neutral-600"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="text-xs text-neutral-500">
-                {currentTimeLabel} / {durationLabel}
-              </div>
+            {/* Simple time readout (native controls handle all play/pause/seek) */}
+            <div className="text-right text-xs text-neutral-500">
+              {currentTimeLabel} / {durationLabel}
             </div>
 
-            {/* Timeline slider */}
-            {Number.isFinite(durationSec) && durationSec > 0 && (
-              <input
-                type="range"
-                min={0}
-                max={durationSec}
-                step={0.1}
-                value={currentTimeSec}
-                onChange={(e) => handleSeek(Number(e.target.value))}
-                className="w-full"
-              />
-            )}
-
-            {/* Bookmark + note actions */}
+            {/* Bookmark + note actions driven by native playback time */}
             <div className="mt-3 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <button
@@ -466,7 +391,7 @@ export default function SummaryScreen({ mediaId, mediaUrl }: SummaryProps) {
         )}
       </Card>
 
-      {/* Annotations list card */}
+      {/* Annotations list */}
       <Card>
         <h2 className="mb-2 text-lg font-semibold">Your bookmarks &amp; notes</h2>
 
