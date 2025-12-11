@@ -3,17 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
-import { Home, Activity, Mic, BarChart } from "lucide-react";
+import { Home, Mic, Brain, Film } from "lucide-react";
 
 export default function BottomNav() {
   const pathname = usePathname();
 
-  // CHANGE: Progress tab is now "Library". Routes stay the same for now.
+  // Progress tab is now "Library". Routes stay the same for now.
   const navItems = [
     { href: "/user/account", label: "Account", icon: Home },
-    { href: "/user/progress", label: "Library", icon: Activity }, // CHANGED LABEL
+    // Use a film-strip icon to represent the media library / repository
+    { href: "/user/progress", label: "Library", icon: Film },
     { href: "/user/session", label: "Session", icon: Mic },
-    { href: "/user/learn", label: "Learn", icon: BarChart }, // already updated before
+    // Use a brain icon for the Learn tab
+    { href: "/user/learn", label: "Learn", icon: Brain },
   ];
 
   return (
