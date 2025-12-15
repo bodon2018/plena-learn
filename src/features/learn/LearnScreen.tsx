@@ -110,7 +110,10 @@ export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
 
     async function resolveUrl() {
       try {
-        const res = await fetch(`${API_BASE}/api/media?media_type=record`, {
+        // IMPORTANT:
+        // Pass media_type= (empty) so the backend returns BOTH recordings and uploads.
+        // This allows Learn to resolve uploaded items by id when mediaUrl is not provided.
+        const res = await fetch(`${API_BASE}/api/media?media_type=`, {
           signal: controller.signal,
         });
         if (!res.ok) {
