@@ -11,11 +11,12 @@ import { cn } from "@/lib/cn";
 
 const LINKS = [
   { href: "/admin/account", label: "Account" },
-  { href: "/admin/materials", label: "Materials" },
-  { href: "/admin/users", label: "Users" }, // (from earlier step)
+  { href: "/admin/users", label: "Users" }, // (from earlier step) . right below this one we have to add a new tab called "Data Sources"
+  { href: "/admin/data_sources", label: "Data Sources" },
+  /* { href: "/admin/materials", label: "Materials" }, // we are going to hide for now */
   { href: "/admin/metrics", label: "Metrics" },
-  { href: "/admin/dashboard", label: "Dashboard" },
-  { href: "/admin/transparency", label: "Transparency" }, // CHANGE: add Transparency tab
+  { href: "/admin/results_and_visualizations", label: "Results and Visualizations" }, // we are going to change to "Results and Visualizations"
+  /* { href: "/admin/transparency", label: "Transparency" }, // CHANGE: add Transparency tab. this one we have to hide. */
 ];
 
 export default function AdminTopBar() {
