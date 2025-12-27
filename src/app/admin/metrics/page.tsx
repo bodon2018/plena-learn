@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -8,7 +7,7 @@ import { cn } from "@/lib/cn";
 // Reuse the server-backed “Available Data” list (CSV files under UPLOAD_RAW_DIR).
 import { useDataSourcesStore } from "@/hooks/useDataSourcesStore";
 
-// NEW: Shared source of truth for “available metrics” across Metrics + Results & Visualizations.
+// Shared source of truth for “available metrics” across Metrics + Results & Visualizations.
 import { useMetricsDefinitionsStore } from "@/hooks/useMetricsDefinitionsStore";
 
 /**
@@ -64,11 +63,15 @@ type AdminDecisionPayload = {
  * We only use a few stable fields in the UI.
  *
  * IMPORTANT:
- * - We add `plain_language_definition` because we want to show/edit it for admins.
  * - We only display/edit:
  *     1) plain_language_definition
  *     2) intent_spec.operational_definition
  *     3) data_disclaimer
+ *
+ * UPDATED:
+ * - We intentionally do NOT render execution output here anymore. Running happens in
+ *   Results & Visualizations via POST /admin/metrics/jobs/{job_id}/run, and run outputs
+ *   are tracked in job.metadata.runs (not job.python_execution).
  */
 type MetricJobRecord = {
   job_id: string;
@@ -95,7 +98,13 @@ type MetricJobRecord = {
 
   // We intentionally do NOT render other workflow artifacts here.
   critique_report?: any;
+
+  // UPDATED: keep python_execution optional for backward compatibility with older backends,
+  // but do not use it in this page UI (definition lifecycle only).
   python_execution?: any;
+
+  // NEW (optional): run history lives here in the new backend shape.
+  metadata?: { runs?: any[] } | any;
 
   error?: { error_code: string; error_message: string } | null;
 };
@@ -177,18 +186,11 @@ function summarizeConstraints(c?: Record<string, any>): string {
 
 export default function MetricsPage() {
   /**
-   * NOTE (Updated):
-   * “Existing Metric Definitions” is now sourced from the shared store which reads
+   * “Existing Metric Definitions” is sourced from the shared store which reads
    * the server endpoint GET /admin/metrics/definitions.
-   *
-   * This ensures Metrics tab and Results & Visualizations tab share the same truth.
    */
-  const {
-    definitions,
-    definitionsLoading,
-    definitionsError,
-    refreshDefinitions,
-  } = useMetricsDefinitionsStore();
+  const { definitions, definitionsLoading, definitionsError, refreshDefinitions } =
+    useMetricsDefinitionsStore();
 
   /**
    * The currently selected/most recent job we’re showing in the Status card.
@@ -222,7 +224,6 @@ export default function MetricsPage() {
 
   // ----------------------------------------------------------------------------
   // Data source integration for Status card (WAITING_FOR_DATA_SOURCE).
-  // We only *read* the shared store list here, and attach a selected CSV to the job.
   // ----------------------------------------------------------------------------
   const {
     files: availableCsvs,
@@ -240,7 +241,6 @@ export default function MetricsPage() {
 
   // ----------------------------------------------------------------------------
   // Admin approval UI state (WAITING_FOR_ADMIN_APPROVAL).
-  // We ONLY show/edit: plain_language_definition, intent_spec.operational_definition, data_disclaimer.
   // ----------------------------------------------------------------------------
   const [adminEditing, setAdminEditing] = useState(false);
   const [adminActionLoading, setAdminActionLoading] = useState(false);
@@ -255,8 +255,13 @@ export default function MetricsPage() {
   });
 
   // ----------------------------------------------------------------------------
-  // NEW: On first render, load the server-backed definitions list.
-  // This keeps “Existing Metric Definitions” accurate across reloads/sessions.
+  // NEW: Deletion state for "Existing Metric Definitions"
+  // ----------------------------------------------------------------------------
+  const [deletingByJobId, setDeletingByJobId] = useState<Record<string, boolean>>({});
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // ----------------------------------------------------------------------------
+  // On first render, load the server-backed definitions list.
   // ----------------------------------------------------------------------------
   useEffect(() => {
     refreshDefinitions();
@@ -266,7 +271,6 @@ export default function MetricsPage() {
   /**
    * Create metric job on AI server:
    * - POST /admin/metrics/jobs
-   * - Backend runs S0/S1 and returns a JobRecord (typically WAITING_FOR_DATA_SOURCE).
    */
   const onCreate = async () => {
     setUiError(null);
@@ -285,10 +289,8 @@ export default function MetricsPage() {
         metric_name: form.metricName.trim(),
         description: form.description.trim(),
         sport: form.sport.trim() ? form.sport.trim() : null,
-        // Only include constraints if present (keeps payload clean).
         ...(parsed.value ? { constraints: parsed.value } : {}),
       },
-      // org_context is a top-level field in CreateMetricJobPayload.
       org_context: form.orgContext.trim() ? form.orgContext.trim() : "",
     };
 
@@ -307,14 +309,11 @@ export default function MetricsPage() {
 
       const createdJob = (await resp.json()) as MetricJobRecord;
 
-      // Show this job in the Status card.
       setJob(createdJob);
 
-      // UPDATED: Refresh definitions from server so the list is correct for all sessions.
-      // We do not maintain a separate local list anymore.
+      // Refresh definitions from server so the list is correct for all sessions.
       refreshDefinitions();
 
-      // Reset the form for the next create.
       setForm({
         metricName: "",
         description: "",
@@ -340,8 +339,7 @@ export default function MetricsPage() {
       const updated = (await resp.json()) as MetricJobRecord;
       setJob(updated);
 
-      // UPDATED: If this refresh advances anything that should appear in the list endpoint,
-      // pull latest definitions (safe + keeps list accurate across sessions).
+      // Keep list accurate across sessions (safe, low-cost).
       refreshDefinitions();
     } catch {
       // Keep UI quiet on refresh errors; admin can retry.
@@ -350,13 +348,20 @@ export default function MetricsPage() {
 
   /**
    * Light polling while job is in-flight so the Status card updates as the workflow advances.
-   * This is intentionally conservative: stop polling once terminal states are reached.
+   *
+   * This page manages *definition lifecycle* only. Once the job reaches a stable state
+   * (waiting gates, ready_to_run, or failed), stop polling.
    */
   useEffect(() => {
     if (!job?.job_id) return;
 
-    const terminal = job.status === "completed" || job.status === "failed";
-    if (terminal) return;
+    const stable =
+      job.status === "waiting_for_data_source" ||
+      job.status === "waiting_for_admin_approval" ||
+      job.status === "ready_to_run" ||
+      job.status === "failed";
+
+    if (stable) return;
 
     const id = window.setInterval(() => refreshJob(job.job_id), 2000);
     return () => window.clearInterval(id);
@@ -376,9 +381,7 @@ export default function MetricsPage() {
   }, [job?.status]);
 
   /**
-   * If we’re at the data-source gate and we have files, pick a sensible default:
-   * - If admin already picked a file, keep it.
-   * - Else default to the most recent/first in the list.
+   * If we’re at the data-source gate and we have files, pick a sensible default.
    */
   useEffect(() => {
     if (job?.status !== "waiting_for_data_source") return;
@@ -390,8 +393,6 @@ export default function MetricsPage() {
 
   /**
    * Attach the selected CSV to the current job.
-   * This unblocks the workflow:
-   *   WAITING_FOR_DATA_SOURCE -> discovery -> adjust -> critique -> WAITING_FOR_ADMIN_APPROVAL
    */
   const attachSelectedCsvToJob = async () => {
     setAttachError(null);
@@ -411,7 +412,6 @@ export default function MetricsPage() {
       return;
     }
 
-    // Find the selected file so we can include display_name (admin-friendly).
     const selected = availableCsvs.find((f) => f.saved_path === selectedSavedPathForJob);
     if (!selected) {
       setAttachError("Selected CSV is no longer available. Refresh and try again.");
@@ -423,7 +423,6 @@ export default function MetricsPage() {
         {
           type: "upload_csv",
           saved_path: selected.saved_path,
-          // Optional fields help with UI readability downstream (and are safe for the backend).
           display_name: selected.original_filename,
           mime_type: "text/csv",
         },
@@ -443,11 +442,8 @@ export default function MetricsPage() {
         throw new Error(`Attach data source failed (${resp.status}): ${body}`);
       }
 
-      // Backend returns updated JobRecord after advancing the workflow.
       const updatedJob = (await resp.json()) as MetricJobRecord;
       setJob(updatedJob);
-
-      // UPDATED: refresh definitions so list reflects latest status for this metric.
       refreshDefinitions();
     } catch (e: any) {
       setAttachError(e?.message ?? "Failed to attach data source.");
@@ -458,15 +454,7 @@ export default function MetricsPage() {
 
   /**
    * Admin decision API call.
-   *
-   * IMPORTANT BACKEND NOTE (so you don’t lose time debugging):
-   * - Today, your backend “EDIT” path applies `edits` only to `IntentSpec` via model_copy(update=edits).
-   * - To fully support editing `plain_language_definition` and `data_disclaimer`, the backend must also:
-   *     1) persist plain_language_definition in JobRecord
-   *     2) persist data_disclaimer updates in JobRecord
-   *   Otherwise, those edits may not be reflected after refresh.
-   *
-   * Frontend will send all three fields in edits exactly as requested.
+   * - "Approve" finalizes the definition (execution happens elsewhere).
    */
   const submitAdminDecision = async (payload: AdminDecisionPayload) => {
     setAdminActionError(null);
@@ -491,13 +479,9 @@ export default function MetricsPage() {
 
       const updatedJob = (await resp.json()) as MetricJobRecord;
 
-      // Update the Status card with the new server state.
       setJob(updatedJob);
-
-      // UPDATED: refresh definitions list after admin actions (approve/edit/reject can change status).
       refreshDefinitions();
 
-      // If this was an edit submission, exit edit mode so the admin sees the updated state clearly.
       if (payload.decision === "edit") {
         setAdminEditing(false);
       }
@@ -510,17 +494,12 @@ export default function MetricsPage() {
 
   /**
    * Initialize the admin draft fields once we arrive at WAITING_FOR_ADMIN_APPROVAL.
-   * We intentionally do NOT overwrite drafts while the admin is actively editing.
    */
   useEffect(() => {
     if (!job?.job_id) return;
 
-    // If the job changes entirely, reset UI editing state (prevents draft leakage across jobs).
     setAdminActionError(null);
 
-    // Only hydrate drafts when:
-    // - We are at admin approval gate, and
-    // - Admin is not currently editing (so refresh/polling doesn't clobber unsaved edits)
     if (job.status === "waiting_for_admin_approval" && !adminEditing) {
       const serverPlain = (job.plain_language_definition ?? "").toString();
       const serverOp = (job.intent_spec?.operational_definition ?? "").toString();
@@ -531,7 +510,6 @@ export default function MetricsPage() {
         plain_language_definition: serverPlain,
         operational_definition: serverOp,
         data_disclaimer: serverDisclaimer,
-        // comment is always local; we keep it unless the job changes
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -553,6 +531,10 @@ export default function MetricsPage() {
       return "Waiting for admin approval. Review the definition below and approve, edit, or reject.";
     }
 
+    if (job.status === "ready_to_run") {
+      return "Ready to run. This metric definition is approved; run it from Results & Visualizations using a CSV file.";
+    }
+
     if (job.status === "running_data_discovery") {
       return "Running data discovery and refining the metric definition based on available data…";
     }
@@ -561,16 +543,66 @@ export default function MetricsPage() {
       return "Drafting the metric definition (intake + proposal)…";
     }
 
-    if (job.status === "completed") {
-      return "Completed. The metric python ran successfully and results are available in the job’s execution stdout.";
-    }
-
     if (job.status === "failed") {
       return `Failed. ${job.error?.error_message ?? "See job.error for details."}`;
     }
 
     return `Status: ${job.status}`;
   }, [job]);
+
+  /**
+   * Delete a metric definition.
+   *
+   * Backend contract note:
+   * - This UI expects a DELETE endpoint keyed by job_id.
+   * - Prefer:   DELETE /admin/metrics/definitions/{job_id}
+   * - Fallback: DELETE /admin/metrics/jobs/{job_id}
+   *
+   * If your backend only supports one of these, you can remove the other branch.
+   */
+  const deleteMetric = async (jobId: string, metricName?: string) => {
+    setDeleteError(null);
+
+    const label = metricName?.trim() ? `"${metricName.trim()}"` : `job ${jobId}`;
+    if (!confirm(`Delete metric ${label}? This cannot be undone.`)) return;
+
+    // Mark row as busy (disable button, prevent double-submit).
+    setDeletingByJobId((m) => ({ ...m, [jobId]: true }));
+
+    try {
+      // Preferred endpoint for "definitions list" ownership.
+      let resp = await fetch(`${AI_BASE_URL}/admin/metrics/definitions/${jobId}`, { method: "DELETE" });
+
+      // Fallback for backends that model deletion at the job resource.
+      if (!resp.ok) {
+        resp = await fetch(`${AI_BASE_URL}/admin/metrics/jobs/${jobId}`, { method: "DELETE" });
+      }
+
+      if (!resp.ok) {
+        const body = await resp.text();
+        throw new Error(`Delete failed (${resp.status}): ${body}`);
+      }
+
+      // If the Status card is showing the deleted job, clear it (prevents confusing refresh errors).
+      if (job?.job_id === jobId) {
+        setJob(null);
+        setAdminEditing(false);
+        setAdminActionError(null);
+        setAttachError(null);
+      }
+
+      // Refresh server-backed list so UI matches source of truth.
+      refreshDefinitions();
+    } catch (e: any) {
+      setDeleteError(e?.message ?? "Failed to delete metric.");
+    } finally {
+      setDeletingByJobId((m) => {
+        const next = { ...m };
+        delete next[jobId];
+        return next;
+      });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -671,7 +703,7 @@ export default function MetricsPage() {
             <h2 className="text-xl font-bold">Status</h2>
             <div className="mt-2 text-sm text-neutral-700">{statusMessage}</div>
 
-            {/* Job identifiers (helps admin attach/approve correctly). */}
+            {/* Job identifiers */}
             {job ? (
               <div className="mt-3 text-xs text-neutral-500">
                 <div>
@@ -688,7 +720,7 @@ export default function MetricsPage() {
               </div>
             ) : null}
 
-            {/* ------------------ WAITING_FOR_DATA_SOURCE: select + attach CSV ------------------ */}
+            {/* ------------------ WAITING_FOR_DATA_SOURCE ------------------ */}
             {job?.status === "waiting_for_data_source" ? (
               <div className="mt-4 grid gap-3">
                 <div className="rounded-2xl border p-3">
@@ -760,7 +792,7 @@ export default function MetricsPage() {
               </div>
             ) : null}
 
-            {/* ------------------ WAITING_FOR_ADMIN_APPROVAL: show + edit 3 fields ------------------ */}
+            {/* ------------------ WAITING_FOR_ADMIN_APPROVAL ------------------ */}
             {job?.status === "waiting_for_admin_approval" ? (
               <div className="mt-4 grid gap-3">
                 <div className="rounded-2xl border p-3">
@@ -778,7 +810,6 @@ export default function MetricsPage() {
                           className={cn("btn-outline text-xs", adminActionLoading && "opacity-50 pointer-events-none")}
                           disabled={adminActionLoading}
                           onClick={() => {
-                            // Enter edit mode without changing server state.
                             setAdminEditing(true);
                             setAdminActionError(null);
                           }}
@@ -791,7 +822,6 @@ export default function MetricsPage() {
                             className={cn("btn-outline text-xs", adminActionLoading && "opacity-50 pointer-events-none")}
                             disabled={adminActionLoading}
                             onClick={() => {
-                              // Cancel restores the last server values (without needing a refresh).
                               setAdminEditing(false);
                               setAdminActionError(null);
                               setAdminDraft((d) => ({
@@ -830,7 +860,7 @@ export default function MetricsPage() {
                     </div>
                   </div>
 
-                  {/* Field 1: plain_language_definition */}
+                  {/* Field 1 */}
                   <div className="mt-4">
                     <label className="block text-sm text-neutral-700">Plain-language definition</label>
                     {!adminEditing ? (
@@ -851,7 +881,7 @@ export default function MetricsPage() {
                     )}
                   </div>
 
-                  {/* Field 2: intent_spec.operational_definition */}
+                  {/* Field 2 */}
                   <div className="mt-4">
                     <label className="block text-sm text-neutral-700">Operational definition</label>
                     {!adminEditing ? (
@@ -872,7 +902,7 @@ export default function MetricsPage() {
                     )}
                   </div>
 
-                  {/* Field 3: data_disclaimer */}
+                  {/* Field 3 */}
                   <div className="mt-4">
                     <label className="block text-sm text-neutral-700">Data disclaimer</label>
                     {!adminEditing ? (
@@ -891,7 +921,7 @@ export default function MetricsPage() {
                     )}
                   </div>
 
-                  {/* Optional comment (sent with approve/edit/reject). */}
+                  {/* Optional comment */}
                   <div className="mt-4">
                     <label className="block text-sm text-neutral-700">Comment (Optional)</label>
                     <textarea
@@ -903,7 +933,7 @@ export default function MetricsPage() {
                     />
                   </div>
 
-                  {/* Approve / Reject actions */}
+                  {/* Approve / Reject */}
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
                     <button
                       className={cn("btn-primary", adminActionLoading && "opacity-50 pointer-events-none")}
@@ -914,7 +944,7 @@ export default function MetricsPage() {
                           comment: adminDraft.comment.trim() ? adminDraft.comment.trim() : null,
                         })
                       }
-                      title="Approve and proceed to python generation + execution"
+                      title="Approve this metric definition (it will become ready to run)"
                     >
                       {adminActionLoading ? "Submitting..." : "Approve"}
                     </button>
@@ -946,32 +976,7 @@ export default function MetricsPage() {
               </div>
             ) : null}
 
-            {/* ------------------ Terminal output: show execution capture (minimal) ------------------ */}
-            {job?.status === "completed" && job?.python_execution ? (
-              <div className="mt-4 rounded-2xl border p-3">
-                <div className="text-sm font-medium text-ink">Execution output</div>
-                <div className="mt-2 text-xs text-neutral-500">
-                  Status: {job.python_execution.status}
-                  {job.python_execution.exit_code !== undefined ? ` • exit_code=${job.python_execution.exit_code}` : ""}
-                </div>
-                {job.python_execution.stdout ? (
-                  <div className="mt-3">
-                    <div className="text-xs font-medium text-neutral-700">stdout</div>
-                    <pre className="mt-1 max-h-[240px] overflow-auto rounded-2xl border bg-white p-3 text-xs text-neutral-700">
-                      {job.python_execution.stdout}
-                    </pre>
-                  </div>
-                ) : null}
-                {job.python_execution.stderr ? (
-                  <div className="mt-3">
-                    <div className="text-xs font-medium text-neutral-700">stderr</div>
-                    <pre className="mt-1 max-h-[240px] overflow-auto rounded-2xl border bg-white p-3 text-xs text-neutral-700">
-                      {job.python_execution.stderr}
-                    </pre>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+            {/* Running is handled in Results & Visualizations; keep this page definition-only. */}
 
             {job?.status === "failed" && job?.error ? (
               <div className="mt-4 rounded-2xl border p-3">
@@ -981,7 +986,7 @@ export default function MetricsPage() {
             ) : null}
           </div>
 
-          {/* Manual refresh is useful if polling is disabled by browser policies */}
+          {/* Manual refresh */}
           <div>
             <button
               className={cn("btn-outline text-xs", !job?.job_id && "opacity-50 pointer-events-none")}
@@ -1000,12 +1005,9 @@ export default function MetricsPage() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="mb-1 text-xl font-bold">Existing Metric Definitions</h2>
-            <div className="text-xs text-neutral-500">
-              Source of truth: AI server definitions list endpoint
-            </div>
+            <div className="text-xs text-neutral-500">Source of truth: AI server definitions list endpoint</div>
           </div>
 
-          {/* NEW: Keep styling consistent; provide a refresh affordance for the list. */}
           <div className="flex items-center gap-2">
             <button
               className={cn("btn-outline text-xs", definitionsLoading && "opacity-50 pointer-events-none")}
@@ -1018,8 +1020,11 @@ export default function MetricsPage() {
           </div>
         </div>
 
-        {/* NEW: show list errors (does not interfere with other working UI). */}
+        {/* List-level errors */}
         {definitionsError ? <div className="mt-3 text-sm text-red-600">{definitionsError}</div> : null}
+
+        {/* NEW: deletion errors are list-scoped (keeps per-row UI minimal) */}
+        {deleteError ? <div className="mt-3 text-sm text-red-600">{deleteError}</div> : null}
 
         <div className="mt-3 divide-y rounded-2xl border">
           {definitions.length === 0 ? (
@@ -1027,47 +1032,67 @@ export default function MetricsPage() {
               {definitionsLoading ? "Loading metrics..." : "No metrics created yet."}
             </div>
           ) : (
-            definitions.map((d) => (
-              <div
-                key={d.job_id}
-                className="flex flex-col gap-1 p-3 sm:flex-row sm:items-start sm:justify-between"
-              >
-                <div className="flex-1">
-                  {/* Required fields */}
-                  <div className="font-medium text-ink">{d.metric_name}</div>
-                  <div className="mt-1 text-xs text-neutral-500">{d.description}</div>
+            definitions.map((d) => {
+              const isDeleting = !!deletingByJobId[d.job_id];
 
-                  {/* Optional fields */}
-                  <div className="mt-2 text-xs text-neutral-500">
-                    <span className="font-medium text-ink">Sport:</span> {d.sport ? d.sport : "None"}
-                    {" • "}
-                    <span className="font-medium text-ink">Constraints:</span>{" "}
-                    {summarizeConstraints(d.constraints ?? undefined)}
-                    {" • "}
-                    <span className="font-medium text-ink">Status:</span> {d.status}
-                  </div>
+              return (
+                <div
+                  key={d.job_id}
+                  className="flex flex-col gap-2 p-3 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <div className="flex-1">
+                    {/* Required fields */}
+                    <div className="font-medium text-ink">{d.metric_name}</div>
+                    <div className="mt-1 text-xs text-neutral-500">{d.description}</div>
 
-                  {d.org_context ? (
-                    <div className="mt-1 text-xs text-neutral-500">
-                      <span className="font-medium text-ink">Org context:</span>{" "}
-                      {d.org_context.length > 140 ? `${d.org_context.slice(0, 140)}…` : d.org_context}
+                    {/* Optional fields */}
+                    <div className="mt-2 text-xs text-neutral-500">
+                      <span className="font-medium text-ink">Sport:</span> {d.sport ? d.sport : "None"}
+                      {" • "}
+                      <span className="font-medium text-ink">Constraints:</span>{" "}
+                      {summarizeConstraints(d.constraints ?? undefined)}
+                      {" • "}
+                      <span className="font-medium text-ink">Status:</span> {d.status}
                     </div>
-                  ) : null}
-                </div>
 
-                {/* Minimal, discrete "reference" info aligned with current aesthetic */}
-                <div className="text-xs text-neutral-500 sm:ml-3">
-                  <div>
-                    <span className="font-medium text-ink">Job:</span> {d.job_id}
+                    {d.org_context ? (
+                      <div className="mt-1 text-xs text-neutral-500">
+                        <span className="font-medium text-ink">Org context:</span>{" "}
+                        {d.org_context.length > 140 ? `${d.org_context.slice(0, 140)}…` : d.org_context}
+                      </div>
+                    ) : null}
                   </div>
-                  {d.created_at ? (
+
+                  {/* Right rail: reference info + admin actions */}
+                  <div className="text-xs text-neutral-500 sm:ml-3 sm:text-right">
                     <div>
-                      <span className="font-medium text-ink">Created:</span> {d.created_at}
+                      <span className="font-medium text-ink">Job:</span> {d.job_id}
                     </div>
-                  ) : null}
+                    {d.created_at ? (
+                      <div>
+                        <span className="font-medium text-ink">Created:</span> {d.created_at}
+                      </div>
+                    ) : null}
+
+                    {/* NEW: Delete action (admin) */}
+                    <div className="mt-2 flex justify-start sm:justify-end">
+                      <button
+                        className={cn(
+                          "btn-outline text-xs",
+                          "text-red-600",
+                          isDeleting && "opacity-50 pointer-events-none"
+                        )}
+                        disabled={isDeleting}
+                        onClick={() => deleteMetric(d.job_id, d.metric_name)}
+                        title="Delete this metric definition"
+                      >
+                        {isDeleting ? "Deleting..." : "Delete"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </Card>

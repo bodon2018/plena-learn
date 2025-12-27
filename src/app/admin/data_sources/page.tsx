@@ -1,11 +1,20 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Card from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
 
 // NEW: shared store so this state can be reused later in the Metrics tab.
 import { useDataSourcesStore } from "@/hooks/useDataSourcesStore";
+
+/**
+ * AI server base URL (local dev).
+ * NOTE: In production, you’ll likely want this in an env var.
+ *
+ * We add this here so the page can call the DELETE endpoint directly,
+ * without needing to modify the shared store hook.
+ */
+const AI_BASE_URL = "http://127.0.0.1:8001";
 
 export default function DataSourcesPage() {
   // STYLE: match the Metrics tab input styles.
@@ -31,6 +40,10 @@ export default function DataSourcesPage() {
     fetchOverview,
   } = useDataSourcesStore();
 
+  // NEW: Delete state (page-local so we don’t impact other pages using the store).
+  const [deleteLoadingSavedPath, setDeleteLoadingSavedPath] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   // Selected file object (derived)
   const selectedFile = useMemo(() => {
     if (!selectedSavedPath) return null;
@@ -50,6 +63,53 @@ export default function DataSourcesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSavedPath]);
 
+  /**
+   * NEW: Delete a CSV file from the server.
+   *
+   * Expected backend endpoint (to implement server-side):
+   *   DELETE /admin/data-sources
+   *   Body: { "saved_path": "/abs/path/to/upload/raw/file.csv" }
+   *
+   * The backend should:
+   * - Validate saved_path is under UPLOAD_RAW_DIR
+   * - Delete the file
+   * - Return 200 OK (or 204 No Content)
+   */
+  const deleteCsv = async (savedPath: string, originalFilename?: string) => {
+    setDeleteError(null);
+
+    if (!savedPath) return;
+
+    const label = originalFilename ? `"${originalFilename}"` : "this file";
+    if (!confirm(`Delete ${label}? This will remove it from the server and cannot be undone.`)) return;
+
+    setDeleteLoadingSavedPath(savedPath);
+    try {
+      const resp = await fetch(`${AI_BASE_URL}/admin/data-sources`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ saved_path: savedPath }),
+      });
+
+      if (!resp.ok) {
+        const body = await resp.text();
+        throw new Error(`Delete failed (${resp.status}): ${body}`);
+      }
+
+      // If the deleted file was selected, clear selection so overview doesn’t keep showing stale data.
+      if (selectedSavedPath === savedPath) {
+        clearSelection();
+      }
+
+      // Refresh the list so the UI matches server state.
+      refreshFiles();
+    } catch (e: any) {
+      setDeleteError(e?.message ?? "Failed to delete CSV.");
+    } finally {
+      setDeleteLoadingSavedPath(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* -------------------- Card 1: Available Data -------------------- */}
@@ -65,23 +125,23 @@ export default function DataSourcesPage() {
                - rounded file input
                - btn-primary upload button (upload triggers on file choose) */}
             <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-              <input
-                className={cn(inputCls, "sm:flex-1")}
-                type="file"
-                accept=".csv,text/csv"
-                disabled={uploading}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
+                  <input
+                    className={cn(inputCls, "sm:flex-1")}
+                    type="file"
+                    accept=".csv,text/csv"
+                    multiple
+                    disabled={uploading}
+                    onChange={(e) => {
+                      const list = e.target.files;
+                      if (!list || list.length === 0) return;
 
-                  // Upload immediately on selection.
-                  uploadCsv(f);
+                      for (const f of Array.from(list)) {
+                        uploadCsv(f);
+                      }
 
-                  // Reset so selecting the same file again triggers onChange.
-                  e.currentTarget.value = "";
-                }}
-              />
-
+                      e.currentTarget.value = "";
+                    }}
+                  />
               <button
                 className={cn("btn-primary", uploading && "opacity-50 pointer-events-none")}
                 disabled={uploading}
@@ -109,7 +169,10 @@ export default function DataSourcesPage() {
           </div>
         </div>
 
-        {/* List of uploaded CSVs (now server-backed via GET /admin/data-sources) */}
+        {/* NEW: delete error surfaced near the list (does not interfere with existing errors). */}
+        {deleteError ? <div className="mt-3 text-sm text-red-600">{deleteError}</div> : null}
+
+        {/* List of uploaded CSVs (server-backed via GET /admin/data-sources) */}
         <div className="mt-4">
           <div className="divide-y rounded-2xl border">
             {filesLoading ? (
@@ -121,6 +184,7 @@ export default function DataSourcesPage() {
             ) : (
               files.map((f) => {
                 const isSelected = f.saved_path === selectedSavedPath;
+                const isDeleting = deleteLoadingSavedPath === f.saved_path;
 
                 return (
                   <div
@@ -152,12 +216,29 @@ export default function DataSourcesPage() {
                           Clear
                         </button>
                       ) : null}
+
+                      {/* NEW: Delete action (admin-only UI assumption; backend must enforce auth). */}
+                      <button
+                        className={cn(rowBtnCls, "text-red-600")}
+                        onClick={() => deleteCsv(f.saved_path, f.original_filename)}
+                        disabled={isDeleting || uploading || filesLoading}
+                        title="Delete this CSV from the server"
+                      >
+                        {isDeleting ? "Deleting..." : "Delete"}
+                      </button>
                     </div>
                   </div>
                 );
               })
             )}
           </div>
+
+          {/* Small hint to reduce mistakes */}
+          {files.length > 0 ? (
+            <div className="mt-2 text-xs text-neutral-500">
+              Deleting removes the file from the AI server upload directory; metrics runs that referenced it may fail.
+            </div>
+          ) : null}
         </div>
       </Card>
 
@@ -167,9 +248,7 @@ export default function DataSourcesPage() {
 
         <div className="mt-4">
           {!selectedFile ? (
-            <div className="text-sm text-neutral-500">
-              Select a CSV from “Available Data” to see its overview.
-            </div>
+            <div className="text-sm text-neutral-500">Select a CSV from “Available Data” to see its overview.</div>
           ) : overviewLoading ? (
             <div className="text-sm text-neutral-500">Loading overview…</div>
           ) : overviewError ? (
@@ -181,17 +260,13 @@ export default function DataSourcesPage() {
                 <div className="text-sm font-medium text-ink">File</div>
                 <div className="mt-1 text-sm text-neutral-700">{overview.original_filename}</div>
                 <div className="mt-1 text-xs text-neutral-500 break-all">{overview.saved_path}</div>
-                <div className="mt-2 text-xs text-neutral-500">
-                  Size: {overview.size_bytes.toLocaleString()} bytes
-                </div>
+                <div className="mt-2 text-xs text-neutral-500">Size: {overview.size_bytes.toLocaleString()} bytes</div>
               </div>
 
               {/* Shape */}
               <div className="rounded-2xl border p-3">
                 <div className="text-sm font-medium text-ink">Shape</div>
-                <div className="mt-2 text-sm text-neutral-700">
-                  Rows: {overview.row_count.toLocaleString()}
-                </div>
+                <div className="mt-2 text-sm text-neutral-700">Rows: {overview.row_count.toLocaleString()}</div>
                 <div className="mt-1 text-sm text-neutral-700">
                   Columns: {overview.column_count.toLocaleString()}
                 </div>
@@ -207,9 +282,7 @@ export default function DataSourcesPage() {
                       className="rounded-full border px-3 py-1 text-xs text-neutral-700 bg-white"
                       title={
                         c.dtype
-                          ? `dtype=${c.dtype}${
-                              typeof c.nullable === "boolean" ? `, nullable=${c.nullable}` : ""
-                            }`
+                          ? `dtype=${c.dtype}${typeof c.nullable === "boolean" ? `, nullable=${c.nullable}` : ""}`
                           : c.name
                       }
                     >

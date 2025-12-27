@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -31,33 +30,49 @@ type MetricDefinitionSummary = {
 };
 
 /**
- * Payload for attaching data sources to a metric job.
- * Backend expects:
- *   POST /admin/metrics/jobs/{job_id}/data-sources
- *   { data_sources: [ { type: "upload_csv", saved_path: "...", display_name?: "..." } ] }
+ * NEW: Run endpoint payload:
+ *   POST /admin/metrics/jobs/{job_id}/run
  */
-type AttachDataSourcesPayload = {
-  data_sources: Array<{
-    type: "upload_csv";
-    saved_path: string;
-    display_name?: string;
-    mime_type?: string;
-  }>;
-};
-
-/**
- * Admin decision payload:
- *   POST /admin/metrics/jobs/{job_id}/admin-decision
- */
-type AdminDecisionPayload = {
-  decision: "approve" | "edit" | "reject";
-  edits?: Record<string, any>;
+type RunMetricPayload = {
+  saved_path: string;
+  run_name?: string | null;
   comment?: string | null;
 };
 
 /**
+ * NEW: Run record (stored in job.metadata.runs and also returned directly from POST /run).
+ * Keep this minimal and tolerant: backend is the source of truth.
+ */
+type MetricRunRecord = {
+  run_id: string;
+  status: "queued" | "running" | "success" | "error" | "timeout";
+
+  // Backend stores the selected CSV saved_path here (per your main.py)
+  selected_csv_saved_path: string;
+
+  run_label?: string | null;
+
+  started_at?: string | null;
+  finished_at?: string | null;
+
+  exit_code?: number | null;
+
+  stdout?: string | null;
+  stderr?: string | null;
+
+  truncated_stdout?: boolean;
+  truncated_stderr?: boolean;
+
+  // Future-proof: ignore unknown keys.
+  [key: string]: any;
+};
+
+/**
  * Minimal JobRecord type we rely on for running + showing results.
- * NOTE: We keep python_execution loose because its exact structure may evolve.
+ *
+ * IMPORTANT UPDATE:
+ * - python_execution is no longer the source of truth for results.
+ * - runs are stored under metadata.runs (array of run records).
  */
 type MetricJobRecord = {
   job_id: string;
@@ -75,8 +90,11 @@ type MetricJobRecord = {
   // Data disclaimer is displayed in the Numeric Result card.
   data_disclaimer?: string | null;
 
-  // Execution capture (stdout/stderr) and any artifacts produced by the run.
-  python_execution?: any;
+  // NEW: runs live in metadata.runs
+  metadata?: {
+    runs?: MetricRunRecord[];
+    [key: string]: any;
+  };
 
   error?: { error_code: string; error_message: string } | null;
 };
@@ -91,7 +109,7 @@ function tryExtractJsonFromStdout(stdout?: string | null): any | null {
   const text = stdout.trim();
   if (!text) return null;
 
-  // Attempt direct JSON parse first (expected in your screenshot).
+  // Attempt direct JSON parse first.
   try {
     return JSON.parse(text);
   } catch {
@@ -129,7 +147,6 @@ function normalizePlotToImgSrc(plot: any): { src: string; label?: string } | nul
     if (s.startsWith("data:image/")) return { src: s };
 
     // Likely raw base64 png: prefix it
-    // (We assume PNG; adjust if you emit other formats.)
     return { src: `data:image/png;base64,${s}` };
   }
 
@@ -142,7 +159,6 @@ function normalizePlotToImgSrc(plot: any): { src: string; label?: string } | nul
     }
 
     if (typeof plot.url === "string" && plot.url) {
-      // If you later host images somewhere, this will render them.
       return { src: plot.url, label };
     }
 
@@ -160,6 +176,23 @@ function normalizePlotToImgSrc(plot: any): { src: string; label?: string } | nul
   }
 
   return null;
+}
+
+/**
+ * Helper: pick the latest run record from a JobRecord (if any).
+ * We treat "latest" as the last element in metadata.runs, which matches how main.py appends.
+ */
+function getLatestRun(job?: MetricJobRecord | null): MetricRunRecord | null {
+  const runs = job?.metadata?.runs;
+  if (!Array.isArray(runs) || runs.length === 0) return null;
+  return runs[runs.length - 1] ?? null;
+}
+
+/**
+ * Helper: terminal run states.
+ */
+function isRunTerminal(status?: string | null): boolean {
+  return status === "success" || status === "error" || status === "timeout";
 }
 
 export default function ResultsAndVisualizationsPage() {
@@ -198,12 +231,14 @@ export default function ResultsAndVisualizationsPage() {
   const [runLoading, setRunLoading] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
 
-  // The job record we are actively running / observing
+  // The job record we are actively observing (includes metadata.runs).
   const [runJob, setRunJob] = useState<MetricJobRecord | null>(null);
 
   /**
    * Read job state:
    * - GET /admin/metrics/jobs/{job_id}
+   *
+   * Backend returns JobRecord.model_dump() (single source of truth).
    */
   const fetchJob = async (jobId: string): Promise<MetricJobRecord | null> => {
     try {
@@ -216,54 +251,19 @@ export default function ResultsAndVisualizationsPage() {
   };
 
   /**
-   * Attach CSV to a job (if job is waiting for a data source).
+   * Trigger a run against a selected CSV.
+   * - POST /admin/metrics/jobs/{job_id}/run
+   * - Returns the run record immediately (backend executes synchronously today).
    */
-  const attachCsvToJob = async (jobId: string, csvSavedPath: string) => {
-    // Find the selected file so we can include display_name (admin-friendly).
-    const selected = availableCsvs.find((f) => f.saved_path === csvSavedPath);
-    if (!selected) {
-      throw new Error("Selected CSV is no longer available. Refresh and try again.");
-    }
-
-    const payload: AttachDataSourcesPayload = {
-      data_sources: [
-        {
-          type: "upload_csv",
-          saved_path: selected.saved_path,
-          display_name: selected.original_filename, // helps readability in job logs/state
-          mime_type: "text/csv",
-        },
-      ],
-    };
-
-    const resp = await fetch(`${AI_BASE_URL}/admin/metrics/jobs/${jobId}/data-sources`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!resp.ok) {
-      const body = await resp.text();
-      throw new Error(`Attach data source failed (${resp.status}): ${body}`);
-    }
-
-    // Backend returns updated JobRecord.
-    const updated = (await resp.json()) as MetricJobRecord;
-    setRunJob(updated);
-    return updated;
-  };
-
-  /**
-   * Approve a job (if waiting for admin approval) to trigger generation/execution.
-   * NOTE: This is what "Run metric" means in the current workflow.
-   */
-  const approveJob = async (jobId: string) => {
-    const payload: AdminDecisionPayload = {
-      decision: "approve",
+  const triggerRun = async (jobId: string, csvSavedPath: string): Promise<MetricRunRecord> => {
+    const payload: RunMetricPayload = {
+      saved_path: csvSavedPath,
+      // Keep null for now; you can add UI inputs later without changing backend.
+      run_name: null,
       comment: null,
     };
 
-    const resp = await fetch(`${AI_BASE_URL}/admin/metrics/jobs/${jobId}/admin-decision`, {
+    const resp = await fetch(`${AI_BASE_URL}/admin/metrics/jobs/${jobId}/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -271,20 +271,17 @@ export default function ResultsAndVisualizationsPage() {
 
     if (!resp.ok) {
       const body = await resp.text();
-      throw new Error(`Approve failed (${resp.status}): ${body}`);
+      throw new Error(`Run failed (${resp.status}): ${body}`);
     }
 
-    const updated = (await resp.json()) as MetricJobRecord;
-    setRunJob(updated);
-    return updated;
+    return (await resp.json()) as MetricRunRecord;
   };
 
   /**
    * Run metric flow (definition job + CSV):
-   * - Fetch job
-   * - If waiting_for_data_source: attach CSV
-   * - If waiting_for_admin_approval: approve (triggers execution)
-   * - Then poll until terminal status
+   * - Fetch job (read-only)
+   * - Trigger /run with selected CSV
+   * - Fetch job again to hydrate metadata.runs in UI
    */
   const runMetric = async () => {
     setRunError(null);
@@ -300,31 +297,17 @@ export default function ResultsAndVisualizationsPage() {
 
     setRunLoading(true);
     try {
-      // Always start from the latest server state.
-      let current = await fetchJob(selectedMetricJobId);
-      if (!current) {
-        throw new Error("Failed to fetch selected metric job from server.");
-      }
+      // Start from latest server state (so the UI can show prior runs before starting a new one).
+      const current = await fetchJob(selectedMetricJobId);
+      if (!current) throw new Error("Failed to fetch selected metric job from server.");
       setRunJob(current);
 
-      // If job is completed already, we do not auto-rerun it (backend does not expose a rerun contract yet).
-      if (current.status === "completed") {
-        // Read-only path: user can still inspect output.
-        return;
-      }
+      // Trigger the new run (backend validates READY_TO_RUN + python_file_path + path safety).
+      await triggerRun(selectedMetricJobId, selectedCsvSavedPath);
 
-      // If we need a CSV, attach it.
-      if (current.status === "waiting_for_data_source") {
-        current = await attachCsvToJob(current.job_id, selectedCsvSavedPath);
-      }
-
-      // If we need approval, approve to trigger execution.
-      if (current.status === "waiting_for_admin_approval") {
-        current = await approveJob(current.job_id);
-      }
-
-      // After attach/approve, the workflow should move through running states.
-      // We let the polling effect below keep UI updated.
+      // Re-fetch job so UI has the persisted run record under metadata.runs.
+      const updated = await fetchJob(selectedMetricJobId);
+      if (updated) setRunJob(updated);
     } catch (e: any) {
       setRunError(e?.message ?? "Failed to run metric.");
     } finally {
@@ -333,14 +316,16 @@ export default function ResultsAndVisualizationsPage() {
   };
 
   /**
-   * Poll runJob while it is in-flight so the Result/Plots cards update automatically.
-   * This polling is READ-ONLY (it does not trigger execution).
+   * Poll while the latest run is non-terminal.
    */
   useEffect(() => {
     if (!runJob?.job_id) return;
 
-    const terminal = runJob.status === "completed" || runJob.status === "failed";
-    if (terminal) return;
+    const latest = getLatestRun(runJob);
+    if (!latest) return;
+
+    // Stop polling when the latest run is terminal.
+    if (isRunTerminal(latest.status)) return;
 
     const id = window.setInterval(async () => {
       const updated = await fetchJob(runJob.job_id);
@@ -348,15 +333,15 @@ export default function ResultsAndVisualizationsPage() {
     }, 2000);
 
     return () => window.clearInterval(id);
-  }, [runJob?.job_id, runJob?.status]);
+  }, [runJob?.job_id, runJob?.metadata?.runs]);
 
   /**
    * Load initial lists:
-   * - UPDATED: metrics definitions list via shared store (refreshDefinitions)
-   * - CSV list (server-backed store)
+   * - metrics definitions list via shared store
+   * - CSV list via shared store
    */
   useEffect(() => {
-    refreshDefinitions(); // UPDATED: required by request
+    refreshDefinitions();
     refreshCsvs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -383,14 +368,15 @@ export default function ResultsAndVisualizationsPage() {
   }, [definitions, selectedMetricJobId]);
 
   // ----------------------------
-  // Derived: numeric result + disclaimer + plots
+  // Derived: latest run + numeric result + disclaimer + plots
   // ----------------------------
+  const latestRun = useMemo(() => getLatestRun(runJob), [runJob]);
+
   const extractedJson = useMemo(() => {
-    return tryExtractJsonFromStdout(runJob?.python_execution?.stdout ?? null);
-  }, [runJob?.python_execution?.stdout]);
+    return tryExtractJsonFromStdout(latestRun?.stdout ?? null);
+  }, [latestRun?.stdout]);
 
   const numericResult = useMemo(() => {
-    // Prefer a `value` field if your metric returns { value: ... }.
     if (extractedJson && typeof extractedJson === "object" && "value" in extractedJson) {
       return extractedJson.value;
     }
@@ -402,7 +388,7 @@ export default function ResultsAndVisualizationsPage() {
     const server = (runJob?.data_disclaimer ?? "").toString().trim();
     if (server) return server;
 
-    // Fallback if your stdout JSON includes metadata.disclaimer or similar.
+    // Fallback if stdout JSON includes metadata.disclaimer or similar.
     const fromJson =
       extractedJson?.metadata?.data_disclaimer ||
       extractedJson?.metadata?.disclaimer ||
@@ -415,16 +401,6 @@ export default function ResultsAndVisualizationsPage() {
   const plotImgs = useMemo(() => {
     const imgs: Array<{ src: string; label?: string }> = [];
 
-    // 1) If backend attaches plot artifacts in python_execution.artifacts.plots
-    const artifactsPlots = runJob?.python_execution?.artifacts?.plots;
-    if (Array.isArray(artifactsPlots)) {
-      for (const p of artifactsPlots) {
-        const norm = normalizePlotToImgSrc(p);
-        if (norm) imgs.push(norm);
-      }
-    }
-
-    // 2) If stdout JSON includes plots
     const jsonPlots = extractedJson?.plots;
     if (Array.isArray(jsonPlots)) {
       for (const p of jsonPlots) {
@@ -434,18 +410,48 @@ export default function ResultsAndVisualizationsPage() {
     }
 
     return imgs;
-  }, [runJob?.python_execution, extractedJson]);
+  }, [extractedJson]);
 
   const runStatusLine = useMemo(() => {
     if (!runJob) return "No run started yet.";
-    if (runJob.status === "completed") return "Completed.";
-    if (runJob.status === "failed") return `Failed: ${runJob.error?.error_message ?? "See job.error"}`;
-    return `Status: ${runJob.status}`;
+
+    const lr = getLatestRun(runJob);
+    if (!lr) return `Status: ${runJob.status} (no runs yet)`;
+
+    if (lr.status === "success") return "Run succeeded.";
+    if (lr.status === "timeout") return "Run timed out.";
+    if (lr.status === "error") return `Run failed.${lr.stderr ? " See stderr." : ""}`;
+
+    return `Run status: ${lr.status}`;
   }, [runJob]);
+
+  const showResultPanel = useMemo(() => {
+    return Boolean(latestRun && latestRun.status === "success");
+  }, [latestRun]);
+
+  const showRunningPanel = useMemo(() => {
+    return Boolean(latestRun && !isRunTerminal(latestRun.status));
+  }, [latestRun]);
+
+  const showFailedPanel = useMemo(() => {
+    return Boolean(latestRun && isRunTerminal(latestRun.status) && latestRun.status !== "success");
+  }, [latestRun]);
+
+  /**
+   * UI FIX (requested):
+   * Ensure disclaimer / stdout / stderr do NOT overflow outside the Numeric Result card.
+   *
+   * Root cause: long unbroken strings (JSON on one line) + <pre> default no-wrapping can overflow.
+   * Fix: wrap + constrain blocks:
+   * - Add overflow-hidden to the block containers.
+   * - Add max-w-full + whitespace-pre-wrap + break-words to <pre> and long-text containers.
+   */
+  const preCls =
+    "mt-2 max-h-[260px] max-w-full overflow-auto rounded-2xl border bg-white p-3 text-xs text-neutral-700 whitespace-pre-wrap break-words";
 
   return (
     <div className="space-y-6">
-      {/* -------------------- Controls (kept minimal, same design language) -------------------- */}
+      {/* -------------------- Controls -------------------- */}
       <Card>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex-1">
@@ -454,7 +460,6 @@ export default function ResultsAndVisualizationsPage() {
               Select a metric definition and a CSV file, then run the metric.
             </div>
 
-            {/* Metrics list + refresh */}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div>
                 <div className="flex items-center justify-between gap-2">
@@ -462,7 +467,7 @@ export default function ResultsAndVisualizationsPage() {
                   <button
                     className={cn(rowBtnCls, metricsLoading && "opacity-50 pointer-events-none")}
                     disabled={metricsLoading}
-                    onClick={refreshDefinitions} // UPDATED: refresh via shared store
+                    onClick={refreshDefinitions}
                     title="Refresh metrics list"
                   >
                     Refresh
@@ -474,11 +479,10 @@ export default function ResultsAndVisualizationsPage() {
                   value={selectedMetricJobId}
                   onChange={(e) => {
                     setSelectedMetricJobId(e.target.value);
-                    // Reset prior run state when switching metrics (prevents confusion).
                     setRunJob(null);
                     setRunError(null);
                   }}
-                  disabled={metricsLoading || definitions.length === 0} // UPDATED
+                  disabled={metricsLoading || definitions.length === 0}
                 >
                   {definitions.length === 0 ? (
                     <option value="">No metrics available</option>
@@ -491,7 +495,6 @@ export default function ResultsAndVisualizationsPage() {
                   )}
                 </select>
 
-                {/* UPDATED: render store error (no localStorage fallback messaging) */}
                 {metricsError ? <div className="mt-2 text-xs text-neutral-500">{metricsError}</div> : null}
 
                 {selectedMetric ? (
@@ -501,7 +504,6 @@ export default function ResultsAndVisualizationsPage() {
                 ) : null}
               </div>
 
-              {/* CSV list + refresh */}
               <div>
                 <div className="flex items-center justify-between gap-2">
                   <label className="block text-sm text-neutral-700">CSV file</label>
@@ -542,7 +544,6 @@ export default function ResultsAndVisualizationsPage() {
               </div>
             </div>
 
-            {/* Run button + status */}
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
               <button
                 className={cn(
@@ -552,7 +553,7 @@ export default function ResultsAndVisualizationsPage() {
                 )}
                 disabled={runLoading || !selectedMetricJobId || !selectedCsvSavedPath}
                 onClick={runMetric}
-                title="Attach CSV (if needed), approve (if needed), then execute"
+                title="Run the selected metric definition against the selected CSV"
               >
                 {runLoading ? "Starting..." : "Run metric"}
               </button>
@@ -561,9 +562,16 @@ export default function ResultsAndVisualizationsPage() {
 
               {runError ? <div className="text-sm text-red-600">{runError}</div> : null}
             </div>
+
+            {/* Optional: show stderr when the latest run failed/timed out */}
+            {latestRun?.stderr && showFailedPanel ? (
+              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 overflow-hidden">
+                <div className="text-sm font-medium text-red-800">Run stderr</div>
+                <pre className={preCls}>{latestRun.stderr}</pre>
+              </div>
+            ) : null}
           </div>
 
-          {/* Lightweight debug / refresh for the current run job */}
           <div className="mt-2 sm:mt-0">
             <button
               className={cn("btn-outline text-xs", !runJob?.job_id && "opacity-50 pointer-events-none")}
@@ -573,7 +581,7 @@ export default function ResultsAndVisualizationsPage() {
                 const updated = await fetchJob(runJob.job_id);
                 if (updated) setRunJob(updated);
               }}
-              title="Fetch latest run job state"
+              title="Fetch latest job state (includes metadata.runs)"
             >
               Refresh run
             </button>
@@ -585,51 +593,46 @@ export default function ResultsAndVisualizationsPage() {
       <Card>
         <h2 className="text-xl font-bold">Numeric Result</h2>
 
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 grid gap-3 max-w-full">
           {!runJob ? (
             <div className="text-sm text-neutral-500">Run a metric to see results.</div>
-          ) : runJob.status !== "completed" ? (
-            <div className="text-sm text-neutral-500">
-              {runJob.status === "failed"
-                ? `Failed: ${runJob.error?.error_message ?? "See job.error"}`
-                : "Running… refresh will update automatically."}
-            </div>
-          ) : (
+          ) : showRunningPanel ? (
+            <div className="text-sm text-neutral-500">Running… refresh will update automatically.</div>
+          ) : showFailedPanel ? (
+            <div className="text-sm text-neutral-500">Run did not complete successfully. See stderr above.</div>
+          ) : showResultPanel ? (
             <>
               {/* Result block */}
-              <div className="rounded-2xl border p-3">
+              <div className="rounded-2xl border p-3 overflow-hidden">
                 <div className="text-sm font-medium text-ink">Result</div>
 
-                {/* Show a simple "not available" state if stdout isn't parseable yet */}
                 {numericResult == null ? (
-                  <div className="mt-2 text-sm text-neutral-500">
-                    No structured JSON result found in stdout.
-                  </div>
+                  <div className="mt-2 text-sm text-neutral-500">No structured JSON result found in stdout.</div>
                 ) : (
-                  <pre className="mt-2 max-h-[260px] overflow-auto rounded-2xl border bg-white p-3 text-xs text-neutral-700">
-                    {JSON.stringify(numericResult, null, 2)}
-                  </pre>
+                  <pre className={preCls}>{JSON.stringify(numericResult, null, 2)}</pre>
                 )}
               </div>
 
               {/* Data disclaimer block */}
-              <div className="rounded-2xl border p-3">
+              <div className="rounded-2xl border p-3 overflow-hidden">
                 <div className="text-sm font-medium text-ink">Data disclaimer</div>
-                <div className="mt-2 text-sm text-neutral-700 whitespace-pre-wrap">
+                {/* FIX: break long text so it never spills outside the card */}
+                <div className="mt-2 text-sm text-neutral-700 whitespace-pre-wrap break-words max-w-full">
                   {dataDisclaimer ? dataDisclaimer : <span className="text-neutral-500">None provided.</span>}
                 </div>
               </div>
 
-              {/* Optional: raw stdout (kept minimal, still useful for debugging) */}
-              {runJob.python_execution?.stdout ? (
-                <div className="rounded-2xl border p-3">
+              {/* Raw stdout (latest run stdout) */}
+              {latestRun?.stdout ? (
+                <div className="rounded-2xl border p-3 overflow-hidden">
                   <div className="text-sm font-medium text-ink">Raw stdout</div>
-                  <pre className="mt-2 max-h-[240px] overflow-auto rounded-2xl border bg-white p-3 text-xs text-neutral-700">
-                    {runJob.python_execution.stdout}
-                  </pre>
+                  {/* FIX: wrap JSON (single-line) to avoid horizontal overflow */}
+                  <pre className={preCls}>{latestRun.stdout}</pre>
                 </div>
               ) : null}
             </>
+          ) : (
+            <div className="text-sm text-neutral-500">No successful run results yet.</div>
           )}
         </div>
       </Card>
@@ -641,10 +644,10 @@ export default function ResultsAndVisualizationsPage() {
         <div className="mt-4">
           {!runJob ? (
             <div className="text-sm text-neutral-500">Run a metric to see plots.</div>
-          ) : runJob.status !== "completed" ? (
-            <div className="text-sm text-neutral-500">
-              {runJob.status === "failed" ? "No plots (run failed)." : "Plots will appear when the run completes."}
-            </div>
+          ) : showRunningPanel ? (
+            <div className="text-sm text-neutral-500">Plots will appear when the run completes.</div>
+          ) : showFailedPanel ? (
+            <div className="text-sm text-neutral-500">No plots (run failed/timed out).</div>
           ) : plotImgs.length === 0 ? (
             <div className="text-sm text-neutral-500">No plots were produced for this metric run.</div>
           ) : (
