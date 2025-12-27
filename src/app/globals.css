@@ -2,38 +2,161 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens */
+/* =====================================================
+   DESIGN TOKENS
+   CSS custom properties for colors and theming
+   ===================================================== */
 :root {
   --background: #ffffff;
   --foreground: #111827;
+  
+  /* Safe area insets - these get overridden by env() on supported devices */
+  --safe-area-inset-top: 0px;
+  --safe-area-inset-bottom: 0px;
+  --safe-area-inset-left: 0px;
+  --safe-area-inset-right: 0px;
 }
 
-/* Base styles */
+/* Enable safe area insets on devices that support them (notched iPhones, etc.) */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  :root {
+    --safe-area-inset-top: env(safe-area-inset-top);
+    --safe-area-inset-bottom: env(safe-area-inset-bottom);
+    --safe-area-inset-left: env(safe-area-inset-left);
+    --safe-area-inset-right: env(safe-area-inset-right);
+  }
+}
+
+/* =====================================================
+   BASE STYLES
+   Foundational styles applied to HTML elements
+   ===================================================== */
 @layer base {
-  html, body { height: 100%; }
+  /* Ensure html and body fill the viewport */
+  html,
+  body {
+    height: 100%;
+  }
+
   body {
     background: var(--background);
     color: var(--foreground);
+    
+    /* Improved font rendering */
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    
+    /* Prevent horizontal overflow on mobile */
+    overflow-x: hidden;
   }
 
-  /* FIX: use Tailwind utilities instead of theme(...) (v3-safe) */
+  /* Accessible focus states - visible ring for keyboard navigation */
   :focus-visible {
     @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-white rounded-md;
   }
 
+  /* Text selection highlight using primary color */
   ::selection {
-    /* Use a normal rgba color (v3-safe) */
     background: rgba(37, 99, 235, 0.18);
+  }
+
+  /* Smooth scrolling for anchor links */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Remove tap highlight on mobile (we'll use our own active states) */
+  * {
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
-/* Optional component utilities */
+/* =====================================================
+   COMPONENT UTILITIES
+   Reusable component styles
+   ===================================================== */
 @layer components {
-  .btn { @apply inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition shadow-soft hover:shadow-lift active:scale-[0.99]; }
-  .btn-primary { @apply btn bg-primary text-white hover:brightness-105; }
-  .btn-outline { @apply btn border border-neutral-300 bg-white text-ink hover:bg-neutral-50; }
-  .card { @apply rounded-[28px] border border-neutral-200 bg-white shadow-soft transition hover:shadow-lift animate-fade-up; }
+  /* Base button style - shared by all button variants */
+  .btn {
+    @apply inline-flex items-center justify-center;
+    @apply rounded-full px-5 py-2.5;
+    @apply text-sm font-semibold;
+    @apply transition-all duration-150;
+    @apply shadow-soft hover:shadow-lift;
+    @apply active:scale-[0.98];
+  }
+
+  /* Primary button - filled with brand color */
+  .btn-primary {
+    @apply btn bg-primary text-white;
+    @apply hover:brightness-105;
+  }
+
+  /* Outline button - bordered, transparent background */
+  .btn-outline {
+    @apply btn border border-neutral-300 bg-white text-ink;
+    @apply hover:bg-neutral-50 hover:border-neutral-400;
+  }
+
+  /* Card component - elevated surface for content grouping */
+  .card {
+    @apply rounded-2xl;
+    @apply border border-neutral-200/80;
+    @apply bg-white;
+    @apply shadow-soft;
+    @apply transition-shadow duration-200;
+  }
+
+  /* Card hover state - optional, apply with hover:shadow-lift if needed */
+  .card-interactive {
+    @apply card hover:shadow-lift cursor-pointer;
+  }
+}
+
+/* =====================================================
+   UTILITY CLASSES
+   Custom utilities for specific use cases
+   ===================================================== */
+@layer utilities {
+  /* Safe area padding utilities for notched devices */
+  .pt-safe {
+    padding-top: var(--safe-area-inset-top);
+  }
+
+  .pb-safe {
+    padding-bottom: var(--safe-area-inset-bottom);
+  }
+
+  .pl-safe {
+    padding-left: var(--safe-area-inset-left);
+  }
+
+  .pr-safe {
+    padding-right: var(--safe-area-inset-right);
+  }
+
+  /* Margin variants */
+  .mt-safe {
+    margin-top: var(--safe-area-inset-top);
+  }
+
+  .mb-safe {
+    margin-bottom: var(--safe-area-inset-bottom);
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Text balance for better line wrapping on headings */
+  .text-balance {
+    text-wrap: balance;
+  }
 }

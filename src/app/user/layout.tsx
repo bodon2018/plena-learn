@@ -1,34 +1,72 @@
-// CHANGE: This layout wraps ALL /user/* pages and re-applies the mobile-first shell
-// (background color, max width, side padding, and bottom space for the tab bar).
-// This resolves the "background behind the cards is not the proper color".
+"use client";
 
-import type { Metadata } from "next";
-import "@/app/globals.css";
+import type { ReactNode } from "react";
 import BottomTabBar from "@/components/navigation/BottomTabBar";
+import Sidebar from "@/components/navigation/Sidebar";
 
-export const metadata: Metadata = {
-  title: "Plena",
-  description: "Plena user experience",
-};
-
-export default function UserLayout({ children }: { children: React.ReactNode }) {
+/**
+ * User layout - wraps all /user/* pages.
+ * 
+ * Responsive behavior:
+ * - Mobile (< 768px): Bottom tab navigation, full-width content
+ * - Tablet/Desktop (>= 768px): Sidebar navigation on left, centered content
+ * 
+ * Note: No <html> or <body> tags here - root layout handles those.
+ */
+export default function UserLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      {/* CHANGE: put the background color on <body> so it’s consistent across pages */}
-      <body className="bg-neutral-50">
-        {/* CHANGE: center the content, add horizontal padding, top padding, and
-           bottom padding to avoid overlapping the bottom tab bar. */}
-        <div className="mx-auto max-w-sm px-3 pb-24 pt-3 min-h-[100dvh]">
-          {children}
-        </div>
+    <div className="min-h-screen">
+      {/*
+        =====================================================
+        TABLET/DESKTOP LAYOUT (>= 768px)
+        Sidebar on left, content area on right
+        Hidden on mobile via "hidden md:flex"
+        =====================================================
+      */}
+      <div className="hidden md:flex min-h-screen">
+        {/* Sidebar - fixed width on left side */}
+        <Sidebar />
 
-        {/* space holder (safe area), then the bottom tabs */}
-        <div className="h-16" />
+        {/* 
+          Main content area - takes remaining width
+          - flex-1: Fills available horizontal space
+          - p-8 lg:p-12: Generous padding that increases on larger screens
+          - overflow-y-auto: Scrolls independently if content is tall
+        */}
+        <main className="flex-1 overflow-y-auto p-8 lg:p-12">
+          {/*
+            Content wrapper - constrains width for readability
+            - max-w-3xl: ~768px max width keeps text comfortable to read
+            - mx-auto: Centers the content in the available space
+          */}
+          <div className="max-w-3xl mx-auto">
+            {children}
+          </div>
+        </main>
+      </div>
+
+      {/*
+        =====================================================
+        MOBILE LAYOUT (< 768px)
+        Full-width content with bottom tab navigation
+        Hidden on tablet/desktop via "md:hidden"
+        =====================================================
+      */}
+      <div className="md:hidden min-h-screen flex flex-col">
+        {/*
+          Mobile content area
+          - flex-1: Takes all available vertical space above the tab bar
+          - px-4: 16px horizontal padding (breathing room without wasting space)
+          - pt-4: Top padding for status bar / notch clearance
+          - pb-24: Bottom padding to prevent content hiding behind tab bar
+        */}
+        <main className="flex-1 px-4 pt-4 pb-24">
+          {children}
+        </main>
+
+        {/* Bottom tab bar - fixed to bottom of screen */}
         <BottomTabBar />
-      </body>
-    </html>
+      </div>
+    </div>
   );
 }
-
-
-
