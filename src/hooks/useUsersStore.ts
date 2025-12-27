@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export type UserRole = "Coach" | "Player" | "Team" | "Facilitator" | "Teacher";
+export type UserRole = "Coach" | "Player" | "Team";
 export type AdminUser = { id: string; name: string; role: UserRole; email: string };
 
 const LS_KEY = "app.admin.users";
@@ -19,7 +19,6 @@ const LS_KEY = "app.admin.users";
 const seed: AdminUser[] = [
   { id: "u1", name: "User A", role: "Coach", email: "a@example.com" },
   { id: "u2", name: "User B", role: "Player", email: "b@example.com" },
-  { id: "u3", name: "User C", role: "Teacher", email: "c@example.com" },
 ];
 
 export function useUsersStore() {

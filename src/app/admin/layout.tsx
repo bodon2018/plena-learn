@@ -1,28 +1,37 @@
-/* CHANGE: Admin layout now imports the same global styles and font as the user area,
-   so Tailwind utilities (btn-primary, bg-canvas, etc.) and tokens apply here too. */
+"use client";
 
 import type { ReactNode } from "react";
-import "@/app/globals.css"; // CHANGE: load shared styles into the admin tree
+import AdminSidebar from "@/components/navigation/AdminSidebar";
 
-// CHANGE: match the user layout font so typography is consistent
-import { Inter } from "next/font/google";
-import AdminTopBar from "@/components/navigation/AdminTopBar";
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
+/**
+ * Admin layout - wraps all /admin/* pages.
+ * 
+ * Design decisions:
+ * - Admins primarily use desktop, so sidebar is always visible
+ * - Wider content area than user pages (admins work with data tables, forms)
+ * - No bottom tab bar (desktop-first)
+ * - Clean, professional aesthetic
+ * 
+ * Note: No <html> or <body> tags here - root layout handles those.
+ */
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      {/* CHANGE: apply the same canvas + ink tokens used in user; also apply font variable */}
-      <body className={`${inter.variable} bg-canvas text-ink antialiased`}>
-        <AdminTopBar />
-        {/* CHANGE: same content container width as user area */}
-        <main className="mx-auto max-w-4xl px-4 py-4">{children}</main>
-      </body>
-    </html>
+    <div className="min-h-screen flex">
+      {/* Sidebar - always visible for admin */}
+      <AdminSidebar />
+
+      {/* Main content area */}
+      <main className="flex-1 overflow-y-auto">
+        {/*
+          Content wrapper:
+          - p-6 lg:p-8: Comfortable padding
+          - max-w-6xl: Wider than user pages for data-heavy content
+          - mx-auto: Center content
+        */}
+        <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+          {children}
+        </div>
+      </main>
+    </div>
   );
 }
