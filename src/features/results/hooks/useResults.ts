@@ -138,18 +138,37 @@ function isRunTerminal(status?: string | null): boolean {
 // Hook
 // -----------------------------------------------------------------------------
 
+// Type for metric definition from store
+type MetricDefinition = {
+  job_id: string;
+  status: string;
+  request?: {
+    metric_name: string;
+    description: string;
+    sport?: string | null;
+  };
+  [key: string]: unknown;
+};
+
+// Type for CSV file from store
+type CsvFile = {
+  saved_path: string;
+  original_filename?: string;
+  [key: string]: unknown;
+};
+
 type UseResultsReturn = {
   // Metrics
-  definitions: ReturnType<typeof useMetricsDefinitionsStore>["definitions"];
+  definitions: MetricDefinition[];
   metricsLoading: boolean;
   metricsError: string | null;
   refreshMetrics: () => Promise<void>;
   selectedMetricJobId: string;
   setSelectedMetricJobId: (id: string) => void;
-  selectedMetric: ReturnType<typeof useMetricsDefinitionsStore>["definitions"][0] | null;
+  selectedMetric: MetricDefinition | null;
 
   // CSVs
-  csvs: ReturnType<typeof useDataSourcesStore>["files"];
+  csvs: CsvFile[];
   csvsLoading: boolean;
   csvsError: string | null;
   refreshCsvs: () => Promise<void>;
@@ -178,19 +197,31 @@ export function useResults(): UseResultsReturn {
   // ---------------------------------------------------------------------------
   // Stores
   // ---------------------------------------------------------------------------
+  const metricsStore = useMetricsDefinitionsStore() as {
+    definitions: MetricDefinition[];
+    definitionsLoading: boolean;
+    definitionsError: string | null;
+    refreshDefinitions: () => Promise<void>;
+  };
   const {
     definitions,
     definitionsLoading: metricsLoading,
     definitionsError: metricsError,
     refreshDefinitions: refreshMetrics,
-  } = useMetricsDefinitionsStore();
+  } = metricsStore;
 
+  const dataSourcesStore = useDataSourcesStore() as {
+    files: CsvFile[];
+    filesLoading: boolean;
+    filesError: string | null;
+    refreshFiles: () => Promise<void>;
+  };
   const {
     files: csvs,
     filesLoading: csvsLoading,
     filesError: csvsError,
     refreshFiles: refreshCsvs,
-  } = useDataSourcesStore();
+  } = dataSourcesStore;
 
   // ---------------------------------------------------------------------------
   // Selection state
@@ -330,9 +361,7 @@ export function useResults(): UseResultsReturn {
   }, [latestRun?.stdout]);
 
   const numericResult = useMemo(() => {
-    if (extractedJson && typeof extractedJson === "object" && "value" in (extractedJson as object)) {
-      return (extractedJson as Record<string, unknown>).value;
-    }
+    // Pass the full extracted JSON to allow SmartResultCard to parse metadata
     return extractedJson;
   }, [extractedJson]);
 

@@ -2,7 +2,7 @@
 
 import { useResults } from "./hooks/useResults";
 import RunMetricCard from "./components/RunMetricCard";
-import NumericResultCard from "./components/NumericResultCard";
+import SmartResultCard from "./components/SmartResultCard";
 import PlotsCard from "./components/PlotsCard";
 
 /**
@@ -11,7 +11,7 @@ import PlotsCard from "./components/PlotsCard";
  * Features:
  * - Select a metric definition and CSV file
  * - Run the metric with animated progress indicator
- * - View numeric results and data disclaimer
+ * - View numeric results with smart formatting
  * - Display generated visualizations/plots
  */
 export default function ResultsScreen() {
@@ -24,9 +24,9 @@ export default function ResultsScreen() {
     <div className="space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-heading-1 text-ink">Results & Visualizations</h1>
+        <h1 className="text-heading-1 text-ink">Results</h1>
         <p className="text-body text-mute mt-1">
-          Run metrics against your data and view the results
+          Run metrics on your data and visualize the results.
         </p>
       </div>
 
@@ -54,8 +54,8 @@ export default function ResultsScreen() {
         hasRunJob={hasRun}
       />
 
-      {/* Numeric results */}
-      <NumericResultCard
+      {/* Smart results display */}
+      <SmartResultCard
         hasRun={hasRun}
         isRunning={isRunning}
         isSuccess={results.isRunSuccess}
