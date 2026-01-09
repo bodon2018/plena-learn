@@ -1,12 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { cn } from "@/lib/cn";
-import { Bookmark, FileText, Send, Loader2, Check } from "lucide-react";
+import { Bookmark, FileText, Trash2, Send, Loader2, MessageCircle, User } from "lucide-react";
 import { formatTime } from "../hooks/useMediaPlayer";
-import AIReplyBubble from "./AIReplyBubble";
-import type { AIReply } from "../hooks/useAIAssistant";
+
+// =============================================================================
+// MOCK MODE - Set to true to test replies without backend
+// =============================================================================
+const MOCK_MODE = true;
+
+type Reply = {
+  id: number;
+  author_name: string;
+  text: string;
+  created_at?: string;
+};
 
 type Annotation = {
   id?: number;
@@ -15,6 +24,8 @@ type Annotation = {
   timestamp_ms: number;
   text?: string | null;
   created_at?: string;
+  author_name?: string;
+  replies?: Reply[];
 };
 
 type AnnotationItemProps = {
@@ -22,50 +33,87 @@ type AnnotationItemProps = {
   annotation: Annotation;
   /** Callback when user clicks to jump to this timestamp */
   onJump: (annotation: Annotation) => void;
-  /** Whether AI is ready to answer questions */
-  aiReady?: boolean;
-  /** AI replies for this annotation */
-  aiReplies?: AIReply[];
-  /** Whether AI is currently loading a response */
-  aiLoading?: boolean;
-  /** Callback to ask AI a question */
-  onAskAI?: (annotationId: number, question: string) => void;
-  /** Whether this annotation is selected for multi-select */
-  isSelected?: boolean;
-  /** Callback when selection changes */
-  onSelectionChange?: (annotationId: number, selected: boolean) => void;
-  /** Whether multi-select mode is active */
-  multiSelectMode?: boolean;
+  /** Callback to delete this annotation */
+  onDelete?: (annotationId: number) => void;
+  /** Whether delete is in progress */
+  isDeleting?: boolean;
+  /** Callback to add a reply to this annotation */
+  onAddReply?: (annotationId: number, text: string) => Promise<Reply | null>;
 };
 
 /**
+ * Reply bubble component - styled like the old AI reply bubbles.
+ */
+function ReplyBubble({ reply }: { reply: Reply }) {
+  const dateLabel = reply.created_at
+    ? new Date(reply.created_at).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      })
+    : null;
+
+  return (
+    <div
+      className={cn(
+        // Layout - same as old AI bubbles
+        "mt-2 ml-6",
+        "p-3 rounded-xl",
+        // Styling - using primary/blue tones
+        "bg-gradient-to-br from-primary/10 to-sky/5",
+        "border border-primary/20",
+        // Animation
+        "animate-fade-up"
+      )}
+    >
+      {/* Author indicator row */}
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <div
+          className={cn(
+            "w-4 h-4 rounded-md",
+            "bg-gradient-to-br from-primary to-sky",
+            "flex items-center justify-center",
+            "p-0.5"
+          )}
+        >
+          <User className="w-2.5 h-2.5 text-white" />
+        </div>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+          {reply.author_name}
+        </span>
+        {dateLabel && (
+          <span className="text-[10px] text-mute ml-auto">{dateLabel}</span>
+        )}
+      </div>
+
+      {/* Reply text */}
+      <p className="text-body-sm text-ink leading-relaxed">
+        {reply.text}
+      </p>
+    </div>
+  );
+}
+
+/**
  * Single annotation item (bookmark or note).
- * 
- * Clickable card that jumps to the timestamp when tapped.
- * Shows different styling for bookmarks vs notes.
- * Includes inline AI interaction when AI is ready.
  */
 export default function AnnotationItem({
   annotation,
   onJump,
-  aiReady = false,
-  aiReplies = [],
-  aiLoading = false,
-  onAskAI,
-  isSelected = false,
-  onSelectionChange,
-  multiSelectMode = false,
+  onDelete,
+  isDeleting = false,
+  onAddReply,
 }: AnnotationItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [question, setQuestion] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [isSubmittingReply, setIsSubmittingReply] = useState(false);
+  const [localReplies, setLocalReplies] = useState<Reply[]>(annotation.replies || []);
 
   const isBookmark = annotation.kind === "bookmark";
   const timestampLabel = formatTime((annotation.timestamp_ms ?? 0) / 1000);
   const annotationId = annotation.id;
-
   const typeLabel = isBookmark ? "Bookmark" : "Note";
 
-  // Format the creation date
   const dateLabel = annotation.created_at
     ? new Date(annotation.created_at).toLocaleDateString("en-US", {
         month: "short",
@@ -73,43 +121,79 @@ export default function AnnotationItem({
       })
     : null;
 
+  const replies = localReplies;
+  const hasReplies = replies.length > 0;
+
   const handleCardClick = () => {
-    if (multiSelectMode && annotationId && onSelectionChange) {
-      onSelectionChange(annotationId, !isSelected);
-    } else {
+    if (!showDeleteConfirm) {
       onJump(annotation);
     }
   };
 
-  const handleAskClick = (e: React.MouseEvent) => {
+  const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsExpanded(!isExpanded);
+    setShowDeleteConfirm(true);
+    setIsExpanded(false);
   };
 
-  const handleSubmitQuestion = (e: React.FormEvent) => {
+  const handleConfirmDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (annotationId && onDelete) {
+      onDelete(annotationId);
+    }
+    setShowDeleteConfirm(false);
+  };
+
+  const handleCancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowDeleteConfirm(false);
+  };
+
+  const handleToggleExpand = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsExpanded(!isExpanded);
+    setShowDeleteConfirm(false);
+  };
+
+  const handleSubmitReply = async (e: React.FormEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
-    if (!question.trim() || !annotationId || !onAskAI) return;
-    
-    onAskAI(annotationId, question);
-    setQuestion("");
+
+    if (!replyText.trim() || !annotationId) return;
+
+    setIsSubmittingReply(true);
+
+    try {
+      if (MOCK_MODE) {
+        // Mock mode: add reply locally
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        
+        const newReply: Reply = {
+          id: Date.now(),
+          author_name: "You",
+          text: replyText.trim(),
+          created_at: new Date().toISOString(),
+        };
+        
+        setLocalReplies((prev) => [...prev, newReply]);
+        setReplyText("");
+      } else if (onAddReply) {
+        const newReply = await onAddReply(annotationId, replyText.trim());
+        if (newReply) {
+          setLocalReplies((prev) => [...prev, newReply]);
+        }
+        setReplyText("");
+      }
+    } catch (err) {
+      console.error("Failed to add reply:", err);
+    } finally {
+      setIsSubmittingReply(false);
+    }
   };
 
   const handleInputClick = (e: React.MouseEvent) => {
     e.stopPropagation();
   };
-
-  const handleSelectionClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (annotationId && onSelectionChange) {
-      onSelectionChange(annotationId, !isSelected);
-    }
-  };
-
-  // Get latest reply and previous replies
-  const latestReply = aiReplies.length > 0 ? aiReplies[aiReplies.length - 1] : null;
-  const previousReplies = aiReplies.length > 1 ? aiReplies.slice(0, -1) : [];
 
   return (
     <div className="space-y-0">
@@ -117,42 +201,20 @@ export default function AnnotationItem({
       <button
         type="button"
         onClick={handleCardClick}
+        disabled={isDeleting}
         className={cn(
           "w-full flex items-start gap-3 p-4",
           "rounded-2xl",
-          "border",
+          "border border-neutral-200/80",
           "bg-white",
-          "hover:shadow-soft",
+          "hover:shadow-soft hover:border-primary/40 hover:bg-primary/[0.02]",
           "active:scale-[0.99]",
           "transition-all duration-150",
           "text-left",
-          isExpanded && "rounded-b-none border-b-0",
-          isSelected
-            ? "border-emerald-700 bg-emerald-900/5"
-            : "border-neutral-200/80 hover:border-primary/40 hover:bg-primary/[0.02]"
+          (isExpanded || showDeleteConfirm) && "rounded-b-none border-b-0",
+          isDeleting && "opacity-50 pointer-events-none"
         )}
       >
-        {/* Selection checkbox (visible when AI ready) */}
-        {aiReady && annotationId && (
-          <button
-            type="button"
-            onClick={handleSelectionClick}
-            className={cn(
-              "flex-shrink-0",
-              "w-6 h-6 rounded-lg",
-              "border-2",
-              "flex items-center justify-center",
-              "transition-all duration-150",
-              isSelected
-                ? "bg-emerald-700 border-emerald-700 text-white"
-                : "border-neutral-300 hover:border-emerald-600"
-            )}
-            aria-label={isSelected ? "Deselect" : "Select"}
-          >
-            {isSelected && <Check className="w-3.5 h-3.5" />}
-          </button>
-        )}
-
         {/* Icon badge */}
         <div
           className={cn(
@@ -173,16 +235,23 @@ export default function AnnotationItem({
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          {/* Header row with type and date */}
+          {/* Header row */}
           <div className="flex items-center justify-between gap-2 mb-1">
-            <span
-              className={cn(
-                "text-caption-sm font-semibold uppercase tracking-wide",
-                isBookmark ? "text-sky" : "text-slate-700"
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "text-caption-sm font-semibold uppercase tracking-wide",
+                  isBookmark ? "text-sky" : "text-slate-700"
+                )}
+              >
+                {typeLabel}
+              </span>
+              {annotation.author_name && (
+                <span className="text-caption text-mute">
+                  by {annotation.author_name}
+                </span>
               )}
-            >
-              {typeLabel}
-            </span>
+            </div>
             {dateLabel && (
               <span className="text-caption text-subtle">{dateLabel}</span>
             )}
@@ -193,124 +262,159 @@ export default function AnnotationItem({
             <span className="text-body-sm font-medium text-ink">
               {timestampLabel}
             </span>
-            <span className="text-caption text-subtle">
-              {multiSelectMode ? "tap to select" : "tap to jump"}
-            </span>
+            <span className="text-caption text-subtle">tap to jump</span>
           </div>
 
-          {/* Note text (if present) */}
+          {/* Note text */}
           {annotation.text && (
             <p className="text-body-sm text-mute line-clamp-2">
               {annotation.text}
             </p>
           )}
+
+          {/* Reply button */}
+          <div className="flex items-center gap-3 mt-2">
+            <button
+              type="button"
+              onClick={handleToggleExpand}
+              className={cn(
+                "flex items-center gap-1.5",
+                "text-caption font-medium",
+                "transition-colors",
+                isExpanded ? "text-primary" : "text-mute hover:text-primary"
+              )}
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              {hasReplies
+                ? `${replies.length} ${replies.length === 1 ? "reply" : "replies"}`
+                : "Reply"}
+            </button>
+          </div>
         </div>
 
-        {/* AI Ask button - Plena logo - more visible when not expanded */}
-        {aiReady && annotationId && !multiSelectMode && (
+        {/* Delete button */}
+        {annotationId && onDelete && (
           <button
             type="button"
-            onClick={handleAskClick}
+            onClick={handleDeleteClick}
+            disabled={isDeleting}
             className={cn(
               "flex-shrink-0",
               "w-9 h-9 rounded-xl",
               "flex items-center justify-center",
               "transition-all duration-200",
-              isExpanded
-                ? "bg-gradient-to-br from-emerald-700 to-emerald-800 shadow-md"
-                : "bg-emerald-700/80 hover:bg-emerald-700"
+              "text-neutral-400 hover:text-danger hover:bg-danger/10",
+              "disabled:opacity-50"
             )}
-            aria-label="Ask Plena AI"
+            aria-label="Delete"
           >
-            <Image
-              src="/plena-logo-white.png"
-              alt="Ask Plena AI"
-              width={20}
-              height={20}
-              className="object-contain"
-            />
+            <Trash2 className="w-4 h-4" />
           </button>
         )}
       </button>
 
-      {/* Expanded AI input section */}
-      {isExpanded && aiReady && annotationId && (
+      {/* Delete confirmation */}
+      {showDeleteConfirm && (
         <div
           className={cn(
             "px-4 pb-4 pt-3",
-            "bg-gradient-to-b from-white to-emerald-900/5",
+            "bg-danger/5",
+            "border border-t-0 border-danger/20",
+            "rounded-b-2xl"
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-body-sm text-danger mb-3">
+            Delete this {isBookmark ? "bookmark" : "note"}? This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleCancelDelete}
+              className={cn(
+                "flex-1 py-2 px-4 rounded-xl",
+                "border border-neutral-200",
+                "text-body-sm font-medium text-ink",
+                "hover:bg-neutral-50",
+                "transition-colors"
+              )}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className={cn(
+                "flex-1 py-2 px-4 rounded-xl",
+                "bg-danger text-white",
+                "text-body-sm font-medium",
+                "hover:bg-danger/90",
+                "transition-colors",
+                "disabled:opacity-50"
+              )}
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Expanded replies section */}
+      {isExpanded && !showDeleteConfirm && (
+        <div
+          className={cn(
+            "px-4 pb-4 pt-2",
+            "bg-gradient-to-b from-white to-neutral-50/50",
             "border border-t-0 border-neutral-200/80",
             "rounded-b-2xl"
           )}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Previous replies - scrollable container */}
-          {previousReplies.length > 0 && (
-            <div
-              className={cn(
-                "mb-3 max-h-32 overflow-y-auto",
-                "rounded-xl",
-                "border border-emerald-800/10",
-                "bg-emerald-900/5"
-              )}
-            >
-              <div className="p-2 space-y-2">
-                {previousReplies.map((reply, index) => (
-                  <div
-                    key={`${reply.annotationId}-${index}`}
-                    className="text-caption text-mute p-2 bg-white rounded-lg"
-                  >
-                    <span className="font-medium text-ink">Q:</span> {reply.question}
-                    <br />
-                    <span className="font-medium text-emerald-800">A:</span> {reply.answer}
-                  </div>
-                ))}
-              </div>
+          {/* Existing replies */}
+          {hasReplies && (
+            <div className="space-y-0 mb-3">
+              {replies.map((reply) => (
+                <ReplyBubble key={reply.id} reply={reply} />
+              ))}
             </div>
           )}
 
-          {/* Latest reply */}
-          {latestReply && (
-            <div className="mb-3">
-              <AIReplyBubble reply={latestReply} />
-            </div>
-          )}
-
-          {/* Input form */}
-          <form onSubmit={handleSubmitQuestion} className="flex gap-2">
+          {/* Reply input */}
+          <form onSubmit={handleSubmitReply} className="flex gap-2">
             <input
               type="text"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
               onClick={handleInputClick}
-              placeholder="Ask Plena AI about this moment..."
-              disabled={aiLoading}
+              placeholder="Write a reply..."
+              disabled={isSubmittingReply}
               className={cn(
                 "flex-1 px-3 py-2",
                 "rounded-xl",
-                "border border-emerald-800/20",
+                "border border-primary/20",
                 "bg-white",
                 "text-body-sm text-ink",
-                "placeholder:text-emerald-800/40",
-                "focus:outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-900/10",
+                "placeholder:text-primary/40",
+                "focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10",
                 "transition-all duration-150",
                 "disabled:opacity-50"
               )}
             />
             <button
               type="submit"
-              disabled={!question.trim() || aiLoading}
+              disabled={!replyText.trim() || isSubmittingReply}
               className={cn(
                 "w-10 h-10 rounded-xl",
                 "flex items-center justify-center",
-                "bg-emerald-700 text-white",
-                "hover:bg-emerald-800",
+                "bg-primary text-white",
+                "hover:bg-primary/90",
                 "active:scale-95",
                 "transition-all duration-150",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
-              {aiLoading ? (
+              {isSubmittingReply ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Send className="w-4 h-4" />

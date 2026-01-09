@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { Bookmark, FileText } from "lucide-react";
 import Card from "@/components/ui/Card";
 import { useMediaPlayer } from "./hooks/useMediaPlayer";
-import { useAIAssistant } from "./hooks/useAIAssistant";
+import { useReportGenerator } from "./hooks/useReportGenerator";
 import MediaPlayer from "./components/MediaPlayer";
 import AnnotationList from "./components/AnnotationList";
 import EmptyState from "./components/EmptyState";
-import AIStatusIndicator from "./components/AIStatusIndicator";
+import ReportButton from "./components/ReportButton";
+import ReportGeneratorModal from "./components/ReportGeneratorModal";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000";
@@ -22,6 +23,16 @@ type LearnProps = {
 };
 
 /**
+ * Shape of a reply on an annotation.
+ */
+type Reply = {
+  id: number;
+  author_name: string;
+  text: string;
+  created_at?: string;
+};
+
+/**
  * Shape of an annotation as returned by the backend.
  */
 type Annotation = {
@@ -31,6 +42,8 @@ type Annotation = {
   timestamp_ms: number;
   text?: string | null;
   created_at?: string;
+  author_name?: string;
+  replies?: Reply[];
 };
 
 /**
@@ -41,8 +54,9 @@ type Annotation = {
  * - Siri-like visualizer for audio
  * - Add bookmarks and notes at any timestamp
  * - Jump back to any annotation
- * - AI assistant for coaching insights on annotations
- * - Multi-select annotations for combined AI queries
+ * - Delete annotations
+ * - Add and view team replies on annotations
+ * - Generate Coach/Player Development Reports via Plena AI
  */
 export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
   // ---------------------------------------------------------------------------
@@ -52,10 +66,11 @@ export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
   const player = useMediaPlayer({ mediaId, mediaUrl });
 
   // ---------------------------------------------------------------------------
-  // AI Assistant hook
+  // Report Generator hook
   // ---------------------------------------------------------------------------
 
-  const ai = useAIAssistant({ mediaId });
+  const report = useReportGenerator({ mediaId });
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // ---------------------------------------------------------------------------
   // Annotation state
@@ -65,18 +80,9 @@ export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
   const [annotationsLoading, setAnnotationsLoading] = useState(false);
   const [annotationsError, setAnnotationsError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
-
-  // ---------------------------------------------------------------------------
-  // Selection state for multi-select AI queries
-  // ---------------------------------------------------------------------------
-
-  const [selectedAnnotations, setSelectedAnnotations] = useState<Set<number>>(
+  const [deletingAnnotations, setDeletingAnnotations] = useState<Set<number>>(
     new Set()
   );
-  const [multiSelectLoading, setMultiSelectLoading] = useState(false);
-
-  // Multi-select mode is active when any annotations are selected
-  const multiSelectMode = selectedAnnotations.size > 0;
 
   // ---------------------------------------------------------------------------
   // Load annotations for this media id
@@ -120,11 +126,6 @@ export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
 
     void loadAnnotations();
     return () => controller.abort();
-  }, [mediaId]);
-
-  // Clear selections when media changes
-  useEffect(() => {
-    setSelectedAnnotations(new Set());
   }, [mediaId]);
 
   // ---------------------------------------------------------------------------
@@ -201,50 +202,91 @@ export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
   };
 
   // ---------------------------------------------------------------------------
-  // AI Assistant handlers
+  // Delete annotation
   // ---------------------------------------------------------------------------
 
-  const handleAskAI = (annotationId: number, question: string) => {
-    void ai.askAI(annotationId, question);
-  };
+  const handleDeleteAnnotation = useCallback(
+    async (annotationId: number) => {
+      if (!mediaId) return;
 
-  const handleSelectionChange = (annotationId: number, selected: boolean) => {
-    setSelectedAnnotations((prev) => {
-      const next = new Set(prev);
-      if (selected) {
-        next.add(annotationId);
-      } else {
-        next.delete(annotationId);
+      // Mark as deleting
+      setDeletingAnnotations((prev) => new Set(prev).add(annotationId));
+
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/media/${encodeURIComponent(mediaId)}/annotations/${annotationId}`,
+          { method: "DELETE" }
+        );
+
+        if (!res.ok) {
+          throw new Error("Failed to delete annotation");
+        }
+
+        // Remove from local state
+        setAnnotations((prev) => prev.filter((a) => a.id !== annotationId));
+      } catch (err) {
+        console.error("Error deleting annotation", err);
+        // Could show a toast here
+      } finally {
+        setDeletingAnnotations((prev) => {
+          const next = new Set(prev);
+          next.delete(annotationId);
+          return next;
+        });
       }
-      return next;
-    });
+    },
+    [mediaId]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Add reply to annotation
+  // ---------------------------------------------------------------------------
+
+  const handleAddReply = useCallback(
+    async (annotationId: number, text: string) => {
+      if (!mediaId) return;
+
+      const res = await fetch(
+        `${API_BASE}/api/media/${encodeURIComponent(mediaId)}/annotations/${annotationId}/replies`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        }
+      );
+
+      if (!res.ok) {
+        throw new Error("Failed to add reply");
+      }
+
+      const newReply = (await res.json()) as Reply;
+
+      // Update local state - add reply to the annotation
+      setAnnotations((prev) =>
+        prev.map((annotation) => {
+          if (annotation.id === annotationId) {
+            return {
+              ...annotation,
+              replies: [...(annotation.replies || []), newReply],
+            };
+          }
+          return annotation;
+        })
+      );
+    },
+    [mediaId]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Report modal handlers
+  // ---------------------------------------------------------------------------
+
+  const handleOpenReportModal = () => {
+    setIsReportModalOpen(true);
   };
 
-  const handleClearSelection = () => {
-    setSelectedAnnotations(new Set());
-  };
-
-  const handleAskMultiple = async (question: string) => {
-    if (selectedAnnotations.size === 0) return;
-
-    setMultiSelectLoading(true);
-
-    // Ask AI for each selected annotation
-    const annotationIds = Array.from(selectedAnnotations);
-    
-    try {
-      // For now, ask the first selected annotation with context about others
-      // In a real implementation, you'd send all IDs to a special endpoint
-      const firstId = annotationIds[0];
-      const contextQuestion = `[Regarding ${annotationIds.length} selected moments] ${question}`;
-      
-      await ai.askAI(firstId, contextQuestion);
-      
-      // Clear selection after asking
-      setSelectedAnnotations(new Set());
-    } finally {
-      setMultiSelectLoading(false);
-    }
+  const handleCloseReportModal = () => {
+    setIsReportModalOpen(false);
   };
 
   // ---------------------------------------------------------------------------
@@ -327,9 +369,7 @@ export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
                 {addBookmarkLabel}
               </button>
               <span className="text-caption text-subtle text-center sm:text-right">
-                {multiSelectMode
-                  ? "Tap checkboxes to select moments"
-                  : "Tap any bookmark below to jump back"}
+                Tap any bookmark below to jump back
               </span>
             </div>
 
@@ -359,9 +399,9 @@ export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
                   className={cn(
                     "inline-flex items-center justify-center gap-2",
                     "px-4 py-2.5 rounded-full",
-                    "bg-secondary/10 text-secondary",
+                    "bg-slate-700/10 text-slate-700",
                     "text-ui font-semibold",
-                    "hover:bg-secondary/20",
+                    "hover:bg-slate-700/20",
                     "transition-all duration-150",
                     "active:scale-[0.98]",
                     "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -383,23 +423,26 @@ export default function LearnScreen({ mediaId, mediaUrl }: LearnProps) {
           isLoading={annotationsLoading}
           error={annotationsError}
           onJump={handleJumpToAnnotation}
-          aiReady={ai.isReady}
-          aiReplies={ai.replies}
-          aiLoadingAnnotations={ai.loadingAnnotations}
-          onAskAI={handleAskAI}
-          selectedAnnotations={selectedAnnotations}
-          onSelectionChange={handleSelectionChange}
-          multiSelectMode={multiSelectMode}
+          onDelete={handleDeleteAnnotation}
+          deletingAnnotations={deletingAnnotations}
+          onAddReply={handleAddReply}
         />
       </Card>
 
-      {/* AI Status Indicator - floating */}
-      <AIStatusIndicator
-        status={ai.readiness}
-        selectedCount={selectedAnnotations.size}
-        isLoading={multiSelectLoading}
-        onAskMultiple={handleAskMultiple}
-        onClearSelection={handleClearSelection}
+      {/* Report Button - floating */}
+      <ReportButton
+        status={report.readiness}
+        onClick={handleOpenReportModal}
+      />
+
+      {/* Report Generator Modal */}
+      <ReportGeneratorModal
+        isOpen={isReportModalOpen}
+        onClose={handleCloseReportModal}
+        mediaId={mediaId}
+        onGenerateReport={report.generateReport}
+        onCheckStatus={report.checkStatus}
+        onDownloadPdf={report.downloadPdf}
       />
     </div>
   );

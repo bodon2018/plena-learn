@@ -10,6 +10,8 @@ import {
   Database,
   BarChart3,
   PieChart,
+  FileText,
+  FolderOpen,
   LogOut,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -25,8 +27,10 @@ const navItems: Array<{
   { href: "/admin/account", label: "Account", icon: User },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/data_sources", label: "Data Sources", icon: Database },
+  { href: "/admin/reference_materials", label: "Reference Materials", icon: FolderOpen },
   { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
   { href: "/admin/results_and_visualizations", label: "Results", icon: PieChart },
+  { href: "/admin/reports", label: "Reports", icon: FileText },
 ];
 
 /**
@@ -146,20 +150,6 @@ export default function AdminSidebar() {
         =====================================================
       */}
       <div className="px-4 py-4 border-t border-neutral-100">
-        {/* Switch to User View link */}
-        <Link
-          href="/user/account"
-          className={cn(
-            "flex items-center gap-3 px-4 py-3 rounded-xl",
-            "text-ui text-mute",
-            "hover:bg-neutral-100 hover:text-ink",
-            "transition-all duration-150"
-          )}
-        >
-          <Users className="w-5 h-5" />
-          <span>Switch to User View</span>
-        </Link>
-
         {/* Logout */}
         <button
           type="button"

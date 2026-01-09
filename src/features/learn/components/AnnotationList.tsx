@@ -4,7 +4,13 @@ import { useMemo } from "react";
 import { cn } from "@/lib/cn";
 import { Bookmark, Loader2 } from "lucide-react";
 import AnnotationItem from "./AnnotationItem";
-import type { AIReply } from "../hooks/useAIAssistant";
+
+type Reply = {
+  id: number;
+  author_name: string;
+  text: string;
+  created_at?: string;
+};
 
 type Annotation = {
   id?: number;
@@ -13,6 +19,8 @@ type Annotation = {
   timestamp_ms: number;
   text?: string | null;
   created_at?: string;
+  author_name?: string;
+  replies?: Reply[];
 };
 
 type AnnotationListProps = {
@@ -24,20 +32,12 @@ type AnnotationListProps = {
   error: string | null;
   /** Callback when user clicks an annotation to jump to timestamp */
   onJump: (annotation: Annotation) => void;
-  /** Whether AI is ready to answer questions */
-  aiReady?: boolean;
-  /** Map of annotation ID to AI replies */
-  aiReplies?: Map<number, AIReply[]>;
-  /** Set of annotation IDs currently loading AI response */
-  aiLoadingAnnotations?: Set<number>;
-  /** Callback to ask AI a question about an annotation */
-  onAskAI?: (annotationId: number, question: string) => void;
-  /** Set of selected annotation IDs */
-  selectedAnnotations?: Set<number>;
-  /** Callback when annotation selection changes */
-  onSelectionChange?: (annotationId: number, selected: boolean) => void;
-  /** Whether multi-select mode is active */
-  multiSelectMode?: boolean;
+  /** Callback to delete an annotation */
+  onDelete?: (annotationId: number) => void;
+  /** Set of annotation IDs currently being deleted */
+  deletingAnnotations?: Set<number>;
+  /** Callback to add a reply to an annotation */
+  onAddReply?: (annotationId: number, text: string) => Promise<void>;
 };
 
 /**
@@ -48,21 +48,17 @@ type AnnotationListProps = {
  * - Error state
  * - Empty state
  * - Sorted list of annotations
- * - AI interaction pass-through
- * - Multi-select for combined AI queries
+ * - Delete functionality
+ * - Team replies display and input
  */
 export default function AnnotationList({
   annotations,
   isLoading,
   error,
   onJump,
-  aiReady = false,
-  aiReplies = new Map(),
-  aiLoadingAnnotations = new Set(),
-  onAskAI,
-  selectedAnnotations = new Set(),
-  onSelectionChange,
-  multiSelectMode = false,
+  onDelete,
+  deletingAnnotations = new Set(),
+  onAddReply,
 }: AnnotationListProps) {
   // Sort annotations by timestamp
   const sortedAnnotations = useMemo(
@@ -77,25 +73,17 @@ export default function AnnotationList({
   );
 
   const itemLabel = sortedAnnotations.length === 1 ? "item" : "items";
-  const selectedCount = selectedAnnotations.size;
 
   return (
     <div className="space-y-4">
       {/* Section header */}
       <div className="flex items-center justify-between">
         <h2 className="text-heading-3 text-ink">Bookmarks & Notes</h2>
-        <div className="flex items-center gap-3">
-          {selectedCount > 0 && (
-            <span className="text-caption text-emerald-600 font-medium">
-              {selectedCount} selected
-            </span>
-          )}
-          {sortedAnnotations.length > 0 && (
-            <span className="text-caption text-mute">
-              {sortedAnnotations.length} {itemLabel}
-            </span>
-          )}
-        </div>
+        {sortedAnnotations.length > 0 && (
+          <span className="text-caption text-mute">
+            {sortedAnnotations.length} {itemLabel}
+          </span>
+        )}
       </div>
 
       {/* Loading state */}
@@ -158,14 +146,8 @@ export default function AnnotationList({
         <ul className="space-y-2">
           {sortedAnnotations.map((annotation, index) => {
             const annotationId = annotation.id;
-            const replies = annotationId
-              ? aiReplies.get(annotationId) ?? []
-              : [];
-            const isAILoading = annotationId
-              ? aiLoadingAnnotations.has(annotationId)
-              : false;
-            const isSelected = annotationId
-              ? selectedAnnotations.has(annotationId)
+            const isDeleting = annotationId
+              ? deletingAnnotations.has(annotationId)
               : false;
 
             return (
@@ -180,13 +162,9 @@ export default function AnnotationList({
                 <AnnotationItem
                   annotation={annotation}
                   onJump={onJump}
-                  aiReady={aiReady}
-                  aiReplies={replies}
-                  aiLoading={isAILoading}
-                  onAskAI={onAskAI}
-                  isSelected={isSelected}
-                  onSelectionChange={onSelectionChange}
-                  multiSelectMode={multiSelectMode}
+                  onDelete={onDelete}
+                  isDeleting={isDeleting}
+                  onAddReply={onAddReply}
                 />
               </li>
             );
