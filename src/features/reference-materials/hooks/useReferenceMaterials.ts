@@ -44,6 +44,7 @@ type UseReferenceMaterialsReturn = {
   canUpload: boolean;
   isUploading: boolean;
   uploadError: string | null;
+  uploadSuccess: boolean;
   uploadMaterial: () => Promise<void>;
 
   // Delete
@@ -75,6 +76,7 @@ export function useReferenceMaterials(): UseReferenceMaterialsReturn {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
 
   // ---------------------------------------------------------------------------
   // Delete state
@@ -123,6 +125,7 @@ export function useReferenceMaterials(): UseReferenceMaterialsReturn {
     <K extends keyof UploadForm>(field: K, value: UploadForm[K]) => {
       setForm((prev) => ({ ...prev, [field]: value }));
       setUploadError(null);
+      setUploadSuccess(false);
     },
     []
   );
@@ -130,6 +133,7 @@ export function useReferenceMaterials(): UseReferenceMaterialsReturn {
   const handleSetFile = useCallback((newFile: File | null) => {
     setFile(newFile);
     setUploadError(null);
+    setUploadSuccess(false);
   }, []);
 
   const canUpload = !!(form.name.trim() && file && !isUploading);
@@ -142,6 +146,7 @@ export function useReferenceMaterials(): UseReferenceMaterialsReturn {
 
     setIsUploading(true);
     setUploadError(null);
+    setUploadSuccess(false);
 
     try {
       const formData = new FormData();
@@ -168,8 +173,11 @@ export function useReferenceMaterials(): UseReferenceMaterialsReturn {
       // Reset form
       setForm({ name: "", description: "", categories: ["general"] });
       setFile(null);
+      
+      // Show success message
+      setUploadSuccess(true);
 
-      // Refresh list
+      // Refresh list to show new document with "Processing" status
       await refreshMaterials();
     } catch (err) {
       console.error("Error uploading material:", err);
@@ -231,6 +239,7 @@ export function useReferenceMaterials(): UseReferenceMaterialsReturn {
     canUpload,
     isUploading,
     uploadError,
+    uploadSuccess,
     uploadMaterial,
 
     // Delete

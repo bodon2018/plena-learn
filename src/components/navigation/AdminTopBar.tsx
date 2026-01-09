@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 
 const LINKS = [
   { href: "/admin/account", label: "Account" },
-  { href: "/admin/users", label: "Users" }, // (from earlier step) . right below this one we have to add a new tab called "Data Sources"
+ /* { href: "/admin/users", label: "Users" }, */ // (from earlier step) . right below this one we have to add a new tab called "Data Sources"
   { href: "/admin/data_sources", label: "Data Sources" },
   /* { href: "/admin/materials", label: "Materials" }, // we are going to hide for now */
   { href: "/admin/metrics", label: "Metrics" },

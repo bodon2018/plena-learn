@@ -34,6 +34,7 @@ export default function ReferenceMaterialsScreen() {
         canUpload={materials.canUpload}
         isUploading={materials.isUploading}
         error={materials.uploadError}
+        uploadSuccess={materials.uploadSuccess}
         onSubmit={materials.uploadMaterial}
       />
 

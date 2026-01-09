@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { cn } from "@/lib/cn";
-import { Upload, FileText, Loader2, AlertCircle } from "lucide-react";
+import { Upload, FileText, Loader2, AlertCircle, CheckCircle } from "lucide-react";
 import Card from "@/components/ui/Card";
 import type { UploadForm } from "../hooks/useReferenceMaterials";
 
@@ -13,6 +13,7 @@ type UploadMaterialFormProps = {
   canUpload: boolean;
   isUploading: boolean;
   error: string | null;
+  uploadSuccess: boolean;
   onSubmit: () => void;
 };
 
@@ -35,6 +36,7 @@ export default function UploadMaterialForm({
   canUpload,
   isUploading,
   error,
+  uploadSuccess,
   onSubmit,
 }: UploadMaterialFormProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -232,6 +234,52 @@ export default function UploadMaterialForm({
           >
             <AlertCircle className="w-5 h-5 text-danger flex-shrink-0 mt-0.5" />
             <p className="text-body-sm text-danger">{error}</p>
+          </div>
+        )}
+
+        {/* Success message */}
+        {uploadSuccess && (
+          <div
+            className={cn(
+              "flex items-start gap-3 p-4 rounded-xl",
+              "bg-success/5 border border-success/20"
+            )}
+          >
+            <CheckCircle className="w-5 h-5 text-success flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-body-sm font-medium text-success">Document uploaded successfully!</p>
+              <p className="text-caption text-mute mt-0.5">
+                Your document is now being indexed. Check the list below for processing status.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Processing status */}
+        {isUploading && (
+          <div
+            className={cn(
+              "flex items-center gap-4 p-4 rounded-xl",
+              "bg-primary/5 border border-primary/20"
+            )}
+          >
+            <div className="relative">
+              <div
+                className={cn(
+                  "w-10 h-10 rounded-xl",
+                  "bg-primary/10",
+                  "flex items-center justify-center"
+                )}
+              >
+                <Loader2 className="w-5 h-5 text-primary animate-spin" />
+              </div>
+            </div>
+            <div className="flex-1">
+              <p className="text-ui font-semibold text-primary">Processing...</p>
+              <p className="text-caption text-mute">
+                Uploading and indexing your document. This may take a moment.
+              </p>
+            </div>
           </div>
         )}
 

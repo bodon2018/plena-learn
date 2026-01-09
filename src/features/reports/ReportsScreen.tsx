@@ -24,7 +24,7 @@ export default function ReportsScreen() {
       <div>
         <h1 className="text-heading-1 text-ink">Reports</h1>
         <p className="text-body text-mute mt-1">
-          Generate AI-powered reports grounded in your organization's reference materials
+          Generate evidence-based reports grounded in your organization's reference materials and data
         </p>
       </div>
 

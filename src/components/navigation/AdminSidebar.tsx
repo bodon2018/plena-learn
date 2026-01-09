@@ -25,7 +25,7 @@ const navItems: Array<{
   icon: LucideIcon;
 }> = [
   { href: "/admin/account", label: "Account", icon: User },
-  { href: "/admin/users", label: "Users", icon: Users },
+  /**{ href: "/admin/users", label: "Users", icon: Users },*/
   { href: "/admin/data_sources", label: "Data Sources", icon: Database },
   { href: "/admin/reference_materials", label: "Reference Materials", icon: FolderOpen },
   { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },

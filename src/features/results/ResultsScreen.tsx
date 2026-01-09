@@ -66,6 +66,7 @@ export default function ResultsScreen() {
       />
 
       {/* Plots */}
+      {/*}
       <PlotsCard
         hasRun={hasRun}
         isRunning={isRunning}
@@ -73,6 +74,7 @@ export default function ResultsScreen() {
         isFailed={results.isRunFailed}
         plots={results.plots}
       />
+      */}
     </div>
   );
 }
