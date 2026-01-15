@@ -24,6 +24,19 @@ function formatBytes(bytes: number): string {
 }
 
 /**
+ * Get file type label for display.
+ */
+function getFileTypeLabel(file: UploadedCsv): string | null {
+  const extension = (file as { file_extension?: string }).file_extension?.toLowerCase() || 
+    file.original_filename?.split('.').pop()?.toLowerCase() || '';
+  
+  if (['.xlsx', 'xlsx'].includes(extension)) return 'Excel';
+  if (['.xls', 'xls'].includes(extension)) return 'Excel';
+  if (['.csv', 'csv'].includes(extension)) return 'CSV';
+  return null;
+}
+
+/**
  * Single file item in the data sources list.
  */
 export default function FileListItem({
@@ -35,6 +48,8 @@ export default function FileListItem({
   onDelete,
   disabled,
 }: FileListItemProps) {
+  const fileTypeLabel = getFileTypeLabel(file);
+
   return (
     <div
       className={cn(
@@ -63,14 +78,29 @@ export default function FileListItem({
 
       {/* File info */}
       <div className="flex-1 min-w-0">
-        <p
-          className={cn(
-            "text-body-sm font-medium truncate",
-            isSelected ? "text-primary" : "text-ink"
+        <div className="flex items-center gap-2">
+          <p
+            className={cn(
+              "text-body-sm font-medium truncate",
+              isSelected ? "text-primary" : "text-ink"
+            )}
+          >
+            {file.original_filename}
+          </p>
+          {fileTypeLabel && (
+            <span
+              className={cn(
+                "px-1.5 py-0.5 rounded",
+                "text-[10px] font-semibold uppercase",
+                isSelected
+                  ? "bg-primary/20 text-primary"
+                  : "bg-neutral-200 text-mute"
+              )}
+            >
+              {fileTypeLabel}
+            </span>
           )}
-        >
-          {file.original_filename}
-        </p>
+        </div>
         <p className="text-caption text-mute mt-0.5">
           {formatBytes(file.size_bytes)}
         </p>

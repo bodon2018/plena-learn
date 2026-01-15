@@ -7,6 +7,8 @@ type CsvFile = {
   saved_path: string;
   original_filename: string;
   size_bytes: number;
+  file_extension?: string;
+  data_source_type?: string;
 };
 
 type DataSourceSelectorProps = {
@@ -22,7 +24,7 @@ type DataSourceSelectorProps = {
 };
 
 /**
- * CSV data source selector for metric workflows.
+ * Data source selector for metric workflows.
  */
 export default function DataSourceSelector({
   csvs,
@@ -97,14 +99,14 @@ export default function DataSourceSelector({
           )}
         >
           <FileSpreadsheet className="w-10 h-10 text-mute mx-auto mb-3" />
-          <p className="text-body-sm text-mute">No CSV files available</p>
+          <p className="text-body-sm text-mute">No data files available</p>
           <p className="text-caption text-subtle mt-1">
-            Upload a CSV in the Data Sources tab, then return here.
+            Upload a file in the Data Sources tab, then return here.
           </p>
         </div>
       )}
 
-      {/* CSV list */}
+      {/* File list */}
       {csvs.length > 0 && (
         <div className="space-y-2">
           {csvs.map((csv) => {
@@ -206,7 +208,7 @@ export default function DataSourceSelector({
           ) : (
             <>
               <Database className="w-4 h-4" />
-              Attach Selected CSV
+              Attach Selected File
             </>
           )}
         </button>

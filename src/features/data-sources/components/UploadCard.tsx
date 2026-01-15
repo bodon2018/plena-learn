@@ -31,7 +31,7 @@ type UploadCardProps = {
 };
 
 /**
- * Card for uploading and managing CSV files.
+ * Card for uploading and managing data files.
  */
 export default function UploadCard({
   files,
@@ -64,7 +64,7 @@ export default function UploadCard({
   return (
     <AdminCard
       title="Data Sources"
-      description="Upload and manage CSV files for metric analysis"
+      description="Upload and manage data files for metric analysis"
       headerActions={
         <button
           type="button"
@@ -100,7 +100,7 @@ export default function UploadCard({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             multiple
             disabled={uploading}
             onChange={handleFileChange}
@@ -123,10 +123,10 @@ export default function UploadCard({
             </div>
 
             <p className="text-body-sm font-medium text-ink">
-              {uploading ? "Uploading..." : "Drop CSV files here or click to upload"}
+              {uploading ? "Uploading..." : "Drop files here or click to upload"}
             </p>
             <p className="text-caption text-mute mt-1">
-              Supports .csv files
+              Supports CSV and Excel (.xlsx, .xls) files
             </p>
 
             <button
@@ -212,7 +212,7 @@ export default function UploadCard({
               <FileSpreadsheet className="w-10 h-10 text-mute mx-auto mb-3" />
               <p className="text-body-sm text-mute">No files uploaded yet</p>
               <p className="text-caption text-subtle mt-1">
-                Upload a CSV to get started
+                Upload a file to get started
               </p>
             </div>
           )}

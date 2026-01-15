@@ -57,11 +57,11 @@ export default function GenerateReportForm({
           </p>
         </div>
 
-        {/* CSV Selection */}
+        {/* Data Source Selection */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label htmlFor="csv-select" className="text-ui font-medium text-ink">
-              Data Source (CSV)
+              Data Source
             </label>
             <button
               type="button"
@@ -91,7 +91,7 @@ export default function GenerateReportForm({
           ) : csvs.length === 0 ? (
             <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200">
               <p className="text-caption text-mute">
-                No data sources available. Upload CSVs in the Data Sources tab first.
+                No data sources available. Upload files in the Data Sources tab first.
               </p>
             </div>
           ) : (
