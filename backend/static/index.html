@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Recorder</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #f7f7f7;
+        color: #111;
+      }
+
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+
+      .panel {
+        background: #fff;
+        border: 1px solid #dcdcdc;
+        border-radius: 6px;
+        padding: 14px;
+      }
+
+      h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .upload-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      input[type="file"] {
+        padding: 4px 0;
+      }
+
+      button {
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 8px 12px;
+        background: #eee;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        background: #f3f3f3;
+        color: #777;
+        cursor: not-allowed;
+      }
+
+      .secondary {
+        background: #fff;
+      }
+
+      .indicator {
+        font-size: 14px;
+        min-height: 18px;
+        color: #555;
+      }
+
+      .indicator.success {
+        color: #0a7a0a;
+      }
+
+      .indicator.danger {
+        color: #c00;
+      }
+
+      .stream {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 10px;
+      }
+
+      .header-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .header-row .spacer {
+        margin-left: auto;
+      }
+
+      video {
+        width: 100%;
+        background: #000;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        height: 300px;
+        object-fit: cover;
+      }
+
+      .controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+
+      .modes {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      .mode-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #555;
+        font-size: 14px;
+      }
+
+      @media (max-width: 800px) {
+        .stream {
+          grid-template-columns: 1fr;
+        }
+        video {
+          height: 220px;
+        }
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 14px;
+      }
+
+      select {
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        background: #fff;
+      }
+
+      .context-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      .muted {
+        color: #777;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel" id="user-card">
+        <div class="header-row">
+          <div>
+            <h2>Storage</h2>
+            <div class="indicator" id="user-indicator"></div>
+          </div>
+          <div class="spacer"></div>
+          <a href="/view">View</a>
+          <button id="logout-btn">Logout</button>
+        </div>
+      </section>
+
+      <section class="panel" id="context-card">
+        <h2>Match Context</h2>
+        <div class="context-grid">
+          <label class="field">
+            <span>Session</span>
+            <select id="session-select">
+              <option value="">(No session)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Home Team</span>
+            <select id="home-team-select">
+              <option value="">(Select team)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Away Team</span>
+            <select id="away-team-select">
+              <option value="">(Select team)</option>
+            </select>
+          </label>
+          <div class="field">
+            <span>Organization (auto)</span>
+            <div id="org-display" class="muted">(not set)</div>
+          </div>
+        </div>
+        <div class="indicator" id="context-indicator"></div>
+      </section>
+
+      <section class="panel" id="upload-card">
+        <h2>Upload</h2>
+        <div class="upload-row">
+          <input type="file" id="file-input" accept="video/*,audio/*" multiple />
+          <button id="upload-btn">Upload</button>
+        </div>
+        <div class="indicator" id="upload-indicator"></div>
+      </section>
+
+      <section class="panel" id="record-card">
+        <h2>Record</h2>
+        <div class="stream">
+          <video id="preview" autoplay muted playsinline></video>
+          <div>
+            <div class="modes">
+              <label class="mode-option">
+                <input type="radio" name="record-mode" value="video" checked />
+                Video + Audio
+              </label>
+              <label class="mode-option">
+                <input type="radio" name="record-mode" value="audio" />
+                Audio only
+              </label>
+            </div>
+            <div class="controls">
+              <button id="start-btn">Start</button>
+              <button id="stop-btn" class="secondary" disabled>Stop</button>
+            </div>
+            <div class="indicator" id="record-indicator"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const fileInput = document.getElementById("file-input");
+      const uploadBtn = document.getElementById("upload-btn");
+      const uploadIndicator = document.getElementById("upload-indicator");
+      const userIndicator = document.getElementById("user-indicator");
+      const logoutBtn = document.getElementById("logout-btn");
+      const sessionSelect = document.getElementById("session-select");
+      const homeTeamSelect = document.getElementById("home-team-select");
+      const awayTeamSelect = document.getElementById("away-team-select");
+      const orgDisplay = document.getElementById("org-display");
+      const contextIndicator = document.getElementById("context-indicator");
+      const previewEl = document.getElementById("preview");
+      const startBtn = document.getElementById("start-btn");
+      const stopBtn = document.getElementById("stop-btn");
+      const recordIndicator = document.getElementById("record-indicator");
+      const modeInputs = document.querySelectorAll('input[name="record-mode"]');
+
+      let mediaStream = null;
+      let mediaRecorder = null;
+      let ws = null;
+      let recording = false;
+      let recordMode = "video"; // "video" | "audio"
+      let teams = [];
+      let sessions = [];
+      const organizations = {};
+
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const wsUrl = `${protocol}://${window.location.host}/ws/stream`;
+      const mimeOptionsVideo = [
+        { mime: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", ext: "mp4" },
+        { mime: "video/mp4", ext: "mp4" },
+        { mime: "video/webm;codecs=vp8,opus", ext: "webm" },
+        { mime: "video/webm", ext: "webm" },
+      ];
+      const mimeOptionsAudio = [
+        { mime: "audio/webm;codecs=opus", ext: "webm" },
+        { mime: "audio/webm", ext: "webm" },
+      ];
+
+      function setIndicator(el, message, tone) {
+        el.textContent = message;
+        el.classList.remove("success", "danger");
+        if (tone) {
+          el.classList.add(tone);
+        }
+      }
+
+      function setStatus() {
+        // No-op placeholder
+      }
+
+      function handleUnauthorized(res) {
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return true;
+        }
+        return false;
+      }
+
+      async function loadMe() {
+        const res = await fetch("/api/me");
+        if (handleUnauthorized(res)) return;
+        const payload = await res.json().catch(() => null);
+        if (!payload) {
+          userIndicator.textContent = "Signed in";
+          return;
+        }
+        const orgPart = payload.organization?.name ? ` · ${payload.organization.name}` : "";
+        userIndicator.textContent = `${payload.name} (${payload.role})${orgPart}`;
+        userIndicator.classList.add("success");
+      }
+
+      function toInt(val) {
+        const n = Number(val);
+        return Number.isFinite(n) ? n : null;
+      }
+
+      function inferOrganizationId() {
+        const sessionId = toInt(sessionSelect.value);
+        if (sessionId) {
+          const s = sessions.find((x) => x.id === sessionId);
+          if (s?.organization_id) return s.organization_id;
+        }
+
+        const homeId = toInt(homeTeamSelect.value);
+        const awayId = toInt(awayTeamSelect.value);
+        const homeTeam = homeId ? teams.find((t) => t.id === homeId) : null;
+        const awayTeam = awayId ? teams.find((t) => t.id === awayId) : null;
+
+        if (homeTeam?.organization_id) return homeTeam.organization_id;
+        if (awayTeam?.organization_id) return awayTeam.organization_id;
+        return null;
+      }
+
+      function updateOrgDisplay() {
+        const orgId = inferOrganizationId();
+        if (orgId && organizations[orgId]) {
+          orgDisplay.textContent = organizations[orgId].name + (organizations[orgId].sport ? ` (${organizations[orgId].sport})` : "");
+          orgDisplay.classList.remove("muted");
+        } else {
+          orgDisplay.textContent = "(not set)";
+          orgDisplay.classList.add("muted");
+        }
+      }
+
+      function applySessionSelection() {
+        const sessionId = toInt(sessionSelect.value);
+        if (!sessionId) {
+          updateOrgDisplay();
+          return;
+        }
+        const s = sessions.find((x) => x.id === sessionId);
+        if (!s) {
+          updateOrgDisplay();
+          return;
+        }
+        if (s.home_team_id) homeTeamSelect.value = String(s.home_team_id);
+        if (s.away_team_id) awayTeamSelect.value = String(s.away_team_id);
+        updateOrgDisplay();
+      }
+
+      function renderTeams() {
+        const opts = ['<option value="">(Select team)</option>'].concat(
+          teams.map((t) => {
+            const orgPart = t.organization?.name ? ` — ${t.organization.name}` : "";
+            return `<option value="${t.id}">${t.name}${orgPart}</option>`;
+          })
+        );
+        homeTeamSelect.innerHTML = opts.join("");
+        awayTeamSelect.innerHTML = opts.join("");
+      }
+
+      function renderSessions() {
+        const opts = ['<option value="">(No session)</option>'].concat(
+          sessions.map((s) => {
+            const teamsLabel = [s.home_team?.name, s.away_team?.name].filter(Boolean).join(" vs ");
+            const namePart = s.name ? s.name : teamsLabel || `Session #${s.id}`;
+            return `<option value="${s.id}">${namePart}</option>`;
+          })
+        );
+        sessionSelect.innerHTML = opts.join("");
+      }
+
+      async function loadReferenceData() {
+        try {
+          setIndicator(contextIndicator, "Loading teams/sessions...");
+          const [teamsRes, sessionsRes] = await Promise.all([
+            fetch("/api/teams"),
+            fetch("/api/sessions"),
+          ]);
+          if (handleUnauthorized(teamsRes) || handleUnauthorized(sessionsRes)) return;
+          if (!teamsRes.ok) throw new Error("Failed to load teams");
+          if (!sessionsRes.ok) throw new Error("Failed to load sessions");
+          teams = await teamsRes.json();
+          sessions = await sessionsRes.json();
+          teams.forEach((t) => {
+            if (t.organization) {
+              organizations[t.organization.id] = t.organization;
+            }
+          });
+          sessions.forEach((s) => {
+            if (s.organization) {
+              organizations[s.organization.id] = s.organization;
+            }
+          });
+          renderTeams();
+          renderSessions();
+          applySessionSelection();
+          setIndicator(contextIndicator, "Context ready", "success");
+        } catch (err) {
+          setIndicator(contextIndicator, err.message || "Failed to load context", "danger");
+        }
+      }
+
+      function getContextIds() {
+        const sessionId = toInt(sessionSelect.value);
+        const homeId = toInt(homeTeamSelect.value);
+        const awayId = toInt(awayTeamSelect.value);
+        const orgId = inferOrganizationId();
+        return {
+          sessionId,
+          homeTeamId: homeId,
+          awayTeamId: awayId,
+          organizationId: orgId,
+        };
+      }
+
+      uploadBtn.addEventListener("click", async () => {
+        const files = Array.from(fileInput.files || []);
+        if (!files.length) {
+          setIndicator(uploadIndicator, "Choose files first.", "danger");
+          return;
+        }
+
+        const formData = new FormData();
+        files.forEach((f) => formData.append("files", f));
+        const ctx = getContextIds();
+        if (ctx.sessionId) formData.append("session_id", String(ctx.sessionId));
+        if (ctx.homeTeamId) formData.append("home_team_id", String(ctx.homeTeamId));
+        if (ctx.awayTeamId) formData.append("away_team_id", String(ctx.awayTeamId));
+        if (ctx.organizationId) formData.append("organization_id", String(ctx.organizationId));
+        uploadBtn.disabled = true;
+        setIndicator(uploadIndicator, "Uploading...");
+
+        try {
+          const res = await fetch("/upload", {
+            method: "POST",
+            body: formData,
+          });
+          if (handleUnauthorized(res)) return;
+          const text = await res.text();
+          let payload = null;
+
+          try {
+            payload = text ? JSON.parse(text) : null;
+          } catch {
+            payload = null;
+          }
+
+          if (!res.ok) {
+            const message =
+              (payload && (payload.detail || payload.message)) ||
+              (text && text.trim()) ||
+              `Upload failed (HTTP ${res.status})`;
+            throw new Error(message);
+          }
+
+          const list = Array.isArray(payload) ? payload : [payload].filter(Boolean);
+          const summary =
+            list.length > 0
+              ? list
+                  .map((item, idx) => {
+                    const name = item?.filename || files[idx]?.name || "file";
+                    const idPart = item?.id ? `#${item.id}` : "";
+                    return `${name}${idPart}`;
+                  })
+                  .join(", ")
+              : `${files.length} file(s)`;
+
+          setIndicator(uploadIndicator, `Saved ${list.length || files.length}: ${summary}`, "success");
+        } catch (err) {
+          setIndicator(uploadIndicator, err.message, "danger");
+        } finally {
+          uploadBtn.disabled = false;
+        }
+      });
+
+      function cleanupStream() {
+        if (mediaStream) {
+          mediaStream.getTracks().forEach((t) => t.stop());
+          mediaStream = null;
+        }
+        previewEl.srcObject = null;
+      }
+
+      function toggleRecordingUI(isRecording) {
+        startBtn.disabled = isRecording;
+        stopBtn.disabled = !isRecording;
+        setStatus();
+      }
+
+      modeInputs.forEach((input) => {
+        input.addEventListener("change", (e) => {
+          recordMode = e.target.value;
+          setIndicator(
+            recordIndicator,
+            recordMode === "audio" ? "Audio-only mode." : "Video + audio mode."
+          );
+        });
+      });
+
+      sessionSelect.addEventListener("change", applySessionSelection);
+      homeTeamSelect.addEventListener("change", updateOrgDisplay);
+      awayTeamSelect.addEventListener("change", updateOrgDisplay);
+
+      startBtn.addEventListener("click", async () => {
+        if (recording) return;
+
+        try {
+          const constraints =
+            recordMode === "audio" ? { audio: true } : { video: true, audio: true };
+          mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (err) {
+          setIndicator(recordIndicator, `Camera/mic error: ${err.message}`, "danger");
+          return;
+        }
+
+        previewEl.srcObject = mediaStream;
+        setIndicator(recordIndicator, "Connecting...");
+        ws = new WebSocket(wsUrl);
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => {
+          const optionsList = recordMode === "audio" ? mimeOptionsAudio : mimeOptionsVideo;
+          const selected = optionsList.find((opt) => MediaRecorder.isTypeSupported(opt.mime)) || optionsList[0];
+          const mimeType = selected?.mime;
+          const extension = selected?.ext || (recordMode === "audio" ? "webm" : "mp4");
+          const ctx = getContextIds();
+
+          const options = mimeType ? { mimeType } : {};
+
+          try {
+            mediaRecorder = new MediaRecorder(mediaStream, options);
+          } catch (err) {
+            setIndicator(recordIndicator, `Recorder init failed: ${err.message}`, "danger");
+            ws.close();
+            cleanupStream();
+            return;
+          }
+
+              ws.send(
+                JSON.stringify({
+                  event: "start",
+                  mimeType: mediaRecorder.mimeType || mimeType,
+                  extension,
+                  kind: recordMode,
+                  sessionId: ctx.sessionId,
+                  homeTeamId: ctx.homeTeamId,
+                  awayTeamId: ctx.awayTeamId,
+                  organizationId: ctx.organizationId,
+                })
+              );
+
+          mediaRecorder.ondataavailable = async (event) => {
+            if (event.data && event.data.size > 0 && ws?.readyState === WebSocket.OPEN) {
+              const buffer = await event.data.arrayBuffer();
+              ws.send(buffer);
+            }
+          };
+
+          mediaRecorder.onstop = () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ event: "end" }));
+              ws.close();
+            }
+            cleanupStream();
+          };
+
+          mediaRecorder.start(500);
+          recording = true;
+          toggleRecordingUI(true);
+          const modeLabel = recordMode === "audio" ? "Audio" : "Video";
+          setIndicator(recordIndicator, `${modeLabel} streaming (${extension}).`);
+        };
+
+        ws.onclose = (event) => {
+          recording = false;
+          toggleRecordingUI(false);
+          if (event && event.code === 1008) {
+            window.location.href = "/login";
+            return;
+          }
+          setIndicator(recordIndicator, "Stopped. Check server for saved recording.", "success");
+          cleanupStream();
+        };
+
+        ws.onerror = (err) => {
+          setIndicator(recordIndicator, "WebSocket error. See console.", "danger");
+          console.error(err);
+          recording = false;
+          toggleRecordingUI(false);
+          cleanupStream();
+        };
+      });
+
+      stopBtn.addEventListener("click", () => {
+        if (!recording) return;
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+          mediaRecorder.stop();
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ event: "end" }));
+          setTimeout(() => ws.close(), 150);
+        }
+      });
+
+      logoutBtn.addEventListener("click", async () => {
+        await fetch("/api/logout", { method: "POST" });
+        window.location.href = "/login";
+      });
+
+      loadMe();
+      loadReferenceData();
+    </script>
+  </body>
+</html>

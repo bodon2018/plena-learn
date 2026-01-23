@@ -1,0 +1,14 @@
+# Virtual env
+.venv/
+venv/
+
+__pycache__/
+*.py[cod]
+
+# Media files
+media/
+
+# Tokens and credentials 
+token.json
+credentials_oauth.json
+service_account.json

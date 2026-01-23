@@ -1,0 +1,4 @@
+backend/client_secret_*.json
+backend/storage-plena-*.json
+__pycache__/
+.DS_Store

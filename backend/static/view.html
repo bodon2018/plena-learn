@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Media View</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #f7f7f7;
+        color: #111;
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+
+      .panel {
+        background: #fff;
+        border: 1px solid #dcdcdc;
+        border-radius: 6px;
+        padding: 16px;
+      }
+
+      h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .muted {
+        color: #777;
+      }
+
+      .indicator {
+        font-size: 14px;
+        min-height: 18px;
+        color: #555;
+      }
+
+      .indicator.success {
+        color: #0a7a0a;
+      }
+
+      .indicator.danger {
+        color: #c00;
+      }
+
+      button {
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 8px 12px;
+        background: #eee;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        background: #f3f3f3;
+        color: #777;
+        cursor: not-allowed;
+      }
+
+      .media-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .media-item {
+        border: 1px solid #e1e1e1;
+        border-radius: 6px;
+        padding: 12px;
+        background: #fafafa;
+        display: grid;
+        gap: 8px;
+      }
+
+      .media-meta {
+        font-size: 14px;
+        color: #444;
+        display: grid;
+        gap: 4px;
+      }
+
+      .annotations {
+        background: #fff;
+        border: 1px solid #e7e7e7;
+        border-radius: 6px;
+        padding: 10px;
+        display: grid;
+        gap: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel">
+        <div class="row">
+          <div>
+            <h2>Media View</h2>
+            <div class="muted" id="user-meta">Loading user...</div>
+          </div>
+          <div style="margin-left: auto;" class="row">
+            <a href="/">Upload</a>
+            <button id="logout-btn">Logout</button>
+          </div>
+        </div>
+        <div class="indicator" id="view-indicator"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Media Files</h2>
+        <div class="media-list" id="media-list"></div>
+      </section>
+    </main>
+
+    <script>
+      const userMeta = document.getElementById("user-meta");
+      const viewIndicator = document.getElementById("view-indicator");
+      const mediaList = document.getElementById("media-list");
+      const logoutBtn = document.getElementById("logout-btn");
+
+      function setIndicator(el, message, tone) {
+        el.textContent = message;
+        el.classList.remove("success", "danger");
+        if (tone) {
+          el.classList.add(tone);
+        }
+      }
+
+      function formatDate(iso) {
+        try {
+          return new Date(iso).toLocaleString();
+        } catch {
+          return iso;
+        }
+      }
+
+      async function loadMe() {
+        const res = await fetch("/api/me");
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return null;
+        }
+        const payload = await res.json();
+        const orgPart = payload.organization?.name ? ` · ${payload.organization.name}` : "";
+        userMeta.textContent = `${payload.name} (${payload.role})${orgPart}`;
+        return payload;
+      }
+
+      function renderAnnotations(container, annotations) {
+        if (!annotations.length) {
+          container.innerHTML = "<div class='muted'>No annotations.</div>";
+          return;
+        }
+        container.innerHTML = annotations
+          .map((a) => {
+            const text = a.text ? ` — ${a.text}` : "";
+            return `<div>${a.kind} @ ${a.timestamp_ms}ms${text}</div>`;
+          })
+          .join("");
+      }
+
+      async function toggleAnnotations(item, container) {
+        if (container.dataset.loaded === "true") {
+          container.remove();
+          return;
+        }
+        const res = await fetch(`/api/media/${item.id}/annotations`);
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        if (!res.ok) {
+          setIndicator(viewIndicator, "Failed to load annotations.", "danger");
+          return;
+        }
+        const annotations = await res.json();
+        renderAnnotations(container, annotations);
+        container.dataset.loaded = "true";
+      }
+
+      async function loadMedia() {
+        setIndicator(viewIndicator, "Loading media...");
+        const res = await fetch("/api/media?media_type=");
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        if (!res.ok) {
+          setIndicator(viewIndicator, "Failed to load media.", "danger");
+          return;
+        }
+        const items = await res.json();
+        if (!items.length) {
+          mediaList.innerHTML = "<div class='muted'>No media found.</div>";
+          setIndicator(viewIndicator, "No media yet.", "success");
+          return;
+        }
+        mediaList.innerHTML = "";
+        items.forEach((item) => {
+          const wrapper = document.createElement("div");
+          wrapper.className = "media-item";
+          const name = item.filename || "Untitled";
+          const url = item.url || "#";
+          const created = item.created_at ? formatDate(item.created_at) : "";
+          wrapper.innerHTML = `
+            <div><strong>${name}</strong></div>
+            <div class="media-meta">
+              <div>Type: ${item.media_type || "-"}</div>
+              <div>Created: ${created}</div>
+              <div>File: <a href="${url}" target="_blank" rel="noreferrer">${url}</a></div>
+            </div>
+            <button class="annotate-btn">Toggle annotations</button>
+          `;
+          const annotationsBox = document.createElement("div");
+          annotationsBox.className = "annotations";
+          annotationsBox.dataset.loaded = "false";
+          const button = wrapper.querySelector(".annotate-btn");
+          button.addEventListener("click", () => {
+            if (annotationsBox.parentElement) {
+              annotationsBox.remove();
+              return;
+            }
+            wrapper.appendChild(annotationsBox);
+            toggleAnnotations(item, annotationsBox);
+          });
+          mediaList.appendChild(wrapper);
+        });
+        setIndicator(viewIndicator, `Loaded ${items.length} media files.`, "success");
+      }
+
+      logoutBtn.addEventListener("click", async () => {
+        await fetch("/api/logout", { method: "POST" });
+        window.location.href = "/login";
+      });
+
+      loadMe();
+      loadMedia();
+    </script>
+  </body>
+</html>

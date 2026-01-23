@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Register</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #f7f7f7;
+        color: #111;
+      }
+
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+
+      .panel {
+        background: #fff;
+        border: 1px solid #dcdcdc;
+        border-radius: 6px;
+        padding: 16px;
+      }
+
+      h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 14px;
+      }
+
+      input {
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        font-size: 14px;
+      }
+
+      button {
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 8px 12px;
+        background: #eee;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        background: #f3f3f3;
+        color: #777;
+        cursor: not-allowed;
+      }
+
+      .indicator {
+        font-size: 14px;
+        min-height: 18px;
+        color: #555;
+      }
+
+      .indicator.success {
+        color: #0a7a0a;
+      }
+
+      .indicator.danger {
+        color: #c00;
+      }
+
+      .row {
+        display: grid;
+        gap: 10px;
+      }
+
+      .meta {
+        font-size: 14px;
+        color: #444;
+      }
+
+      .muted {
+        color: #777;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel">
+        <h2>Invite Code</h2>
+        <div class="row">
+          <label>
+            <span>Invite code</span>
+            <input id="code-input" type="text" autocomplete="one-time-code" />
+          </label>
+          <button id="verify-btn">Verify</button>
+          <div class="indicator" id="verify-indicator"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="register-panel" hidden>
+        <h2>Complete Registration</h2>
+        <div class="row">
+          <div class="meta">
+            <div><strong>Role:</strong> <span id="role-label" class="muted">-</span></div>
+            <div><strong>Organization:</strong> <span id="org-label" class="muted">-</span></div>
+          </div>
+          <label>
+            <span>Name</span>
+            <input id="name-input" type="text" autocomplete="name" />
+          </label>
+          <label>
+            <span>Email</span>
+            <input id="email-input" type="email" autocomplete="email" />
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="password-input" type="password" autocomplete="new-password" />
+          </label>
+          <label>
+            <span>Confirm Password</span>
+            <input id="password-confirm-input" type="password" autocomplete="new-password" />
+          </label>
+          <button id="register-btn">Create account</button>
+          <div class="indicator" id="register-indicator"></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const codeInput = document.getElementById("code-input");
+      const verifyBtn = document.getElementById("verify-btn");
+      const verifyIndicator = document.getElementById("verify-indicator");
+      const registerPanel = document.getElementById("register-panel");
+      const roleLabel = document.getElementById("role-label");
+      const orgLabel = document.getElementById("org-label");
+      const nameInput = document.getElementById("name-input");
+      const emailInput = document.getElementById("email-input");
+      const passwordInput = document.getElementById("password-input");
+      const passwordConfirmInput = document.getElementById("password-confirm-input");
+      const registerBtn = document.getElementById("register-btn");
+      const registerIndicator = document.getElementById("register-indicator");
+
+      let verified = false;
+      let verifiedCode = null;
+
+      function setIndicator(el, message, tone) {
+        el.textContent = message;
+        el.classList.remove("success", "danger");
+        if (tone) {
+          el.classList.add(tone);
+        }
+      }
+
+      async function verifyCode() {
+        const code = codeInput.value.trim();
+        if (!code) {
+          setIndicator(verifyIndicator, "Enter an invite code.", "danger");
+          return;
+        }
+        verifyBtn.disabled = true;
+        setIndicator(verifyIndicator, "Verifying...");
+        try {
+          const res = await fetch("/api/invites/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+          });
+          const payload = await res.json().catch(() => null);
+          if (!res.ok) {
+            const msg = payload?.detail || `Verify failed (HTTP ${res.status})`;
+            throw new Error(msg);
+          }
+          verified = true;
+          verifiedCode = code;
+          roleLabel.textContent = payload.role || "-";
+          if (payload.organization?.name) {
+            orgLabel.textContent = payload.organization.name;
+            if (payload.organization.sport) {
+              orgLabel.textContent += ` (${payload.organization.sport})`;
+            }
+          } else {
+            orgLabel.textContent = "-";
+          }
+          if (payload.email) {
+            emailInput.value = payload.email;
+            emailInput.disabled = true;
+          } else {
+            emailInput.value = "";
+            emailInput.disabled = false;
+          }
+          registerPanel.hidden = false;
+          setIndicator(verifyIndicator, "Invite verified.", "success");
+        } catch (err) {
+          setIndicator(verifyIndicator, err.message || "Verify failed.", "danger");
+        } finally {
+          verifyBtn.disabled = false;
+        }
+      }
+
+      async function submitRegistration() {
+        if (!verified || !verifiedCode) {
+          setIndicator(registerIndicator, "Please verify invite code first.", "danger");
+          return;
+        }
+        const name = nameInput.value.trim();
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
+        const passwordConfirm = passwordConfirmInput.value;
+        if (!name) {
+          setIndicator(registerIndicator, "Name is required.", "danger");
+          return;
+        }
+        if (!email) {
+          setIndicator(registerIndicator, "Email is required.", "danger");
+          return;
+        }
+        if (!password) {
+          setIndicator(registerIndicator, "Password is required.", "danger");
+          return;
+        }
+        if (password.length < 8) {
+          setIndicator(registerIndicator, "Password must be at least 8 characters.", "danger");
+          return;
+        }
+        if (password !== passwordConfirm) {
+          setIndicator(registerIndicator, "Passwords do not match.", "danger");
+          return;
+        }
+        registerBtn.disabled = true;
+        setIndicator(registerIndicator, "Creating account...");
+        try {
+          const res = await fetch("/api/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: verifiedCode,
+              name,
+              email,
+              password,
+            }),
+          });
+          const payload = await res.json().catch(() => null);
+          if (!res.ok) {
+            const msg = payload?.detail || `Register failed (HTTP ${res.status})`;
+            throw new Error(msg);
+          }
+          setIndicator(registerIndicator, "Registration complete.", "success");
+          registerBtn.disabled = true;
+          codeInput.disabled = true;
+          verifyBtn.disabled = true;
+        } catch (err) {
+          setIndicator(registerIndicator, err.message || "Register failed.", "danger");
+          registerBtn.disabled = false;
+        }
+      }
+
+      verifyBtn.addEventListener("click", verifyCode);
+      registerBtn.addEventListener("click", submitRegistration);
+      codeInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") verifyCode();
+      });
+    </script>
+  </body>
+</html>

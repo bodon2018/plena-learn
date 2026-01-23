@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #f7f7f7;
+        color: #111;
+      }
+
+      main {
+        max-width: 520px;
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+
+      .panel {
+        background: #fff;
+        border: 1px solid #dcdcdc;
+        border-radius: 6px;
+        padding: 16px;
+      }
+
+      h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 14px;
+      }
+
+      input {
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        font-size: 14px;
+      }
+
+      button {
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 8px 12px;
+        background: #eee;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        background: #f3f3f3;
+        color: #777;
+        cursor: not-allowed;
+      }
+
+      .indicator {
+        font-size: 14px;
+        min-height: 18px;
+        color: #555;
+      }
+
+      .indicator.success {
+        color: #0a7a0a;
+      }
+
+      .indicator.danger {
+        color: #c00;
+      }
+
+      .row {
+        display: grid;
+        gap: 10px;
+      }
+
+      .link {
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel">
+        <h2>Login</h2>
+        <div class="row">
+          <label>
+            <span>Email or username</span>
+            <input id="email-input" type="text" autocomplete="username" />
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="password-input" type="password" autocomplete="current-password" />
+          </label>
+          <button id="login-btn">Sign in</button>
+          <div class="indicator" id="login-indicator"></div>
+          <div class="link">
+            No account? <a href="/register">Use an invite code</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const emailInput = document.getElementById("email-input");
+      const passwordInput = document.getElementById("password-input");
+      const loginBtn = document.getElementById("login-btn");
+      const loginIndicator = document.getElementById("login-indicator");
+
+      function setIndicator(el, message, tone) {
+        el.textContent = message;
+        el.classList.remove("success", "danger");
+        if (tone) {
+          el.classList.add(tone);
+        }
+      }
+
+      async function login() {
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
+        if (!email || !password) {
+          setIndicator(loginIndicator, "Email or username and password required.", "danger");
+          return;
+        }
+        loginBtn.disabled = true;
+        setIndicator(loginIndicator, "Signing in...");
+        try {
+          const res = await fetch("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+          });
+          const payload = await res.json().catch(() => null);
+          if (!res.ok) {
+            const msg = payload?.detail || `Login failed (HTTP ${res.status})`;
+            throw new Error(msg);
+          }
+          setIndicator(loginIndicator, "Signed in.", "success");
+          window.location.href = "/";
+        } catch (err) {
+          setIndicator(loginIndicator, err.message || "Login failed.", "danger");
+        } finally {
+          loginBtn.disabled = false;
+        }
+      }
+
+      loginBtn.addEventListener("click", login);
+      passwordInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") login();
+      });
+    </script>
+  </body>
+</html>
