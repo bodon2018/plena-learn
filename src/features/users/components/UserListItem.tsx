@@ -1,223 +1,149 @@
 "use client";
 
 import { cn } from "@/lib/cn";
-import { User, Edit2, Save, X, Trash2 } from "lucide-react";
-import type { UserRole } from "@/hooks/useUsersStore";
-import type { EditableUser } from "../hooks/useUsers";
+import { User as UserIcon, Mic, Trash2, Loader2, CheckCircle, XCircle } from "lucide-react";
+import type { User } from "../hooks/useUsers";
 
 type UserListItemProps = {
-  user: EditableUser;
-  roles: UserRole[];
-  onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onUpdateDraft: (field: "name" | "role" | "email", value: string) => void;
-  onSave: () => void;
+  user: User;
+  isDeleting: boolean;
+  isUploadingFingerprint: boolean;
+  onRecordFingerprint: () => void;
   onDelete: () => void;
 };
 
 /**
- * Get role badge color.
+ * Format role for display.
  */
-function getRoleColor(role: UserRole): { bg: string; text: string } {
-  switch (role) {
-    case "Coach":
-      return { bg: "bg-primary/10", text: "text-primary" };
-    case "Player":
-      return { bg: "bg-success/10", text: "text-success" };
-    case "Team":
-      return { bg: "bg-secondary/10", text: "text-secondary" };
-    default:
-      return { bg: "bg-neutral-100", text: "text-mute" };
-  }
+function formatRole(role: string | null): string {
+  if (!role) return "User";
+  return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
 /**
- * Single user row with view and edit modes.
+ * Single user item in the users list.
  */
 export default function UserListItem({
   user,
-  roles,
-  onStartEdit,
-  onCancelEdit,
-  onUpdateDraft,
-  onSave,
+  isDeleting,
+  isUploadingFingerprint,
+  onRecordFingerprint,
   onDelete,
 }: UserListItemProps) {
-  const roleColors = getRoleColor(user.role);
-
-  const inputStyles = cn(
-    "w-full px-3 py-2 rounded-lg",
-    "border border-neutral-200 bg-white",
-    "text-body-sm text-ink",
-    "focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-  );
-
-  // Edit mode
-  if (user.isEditing) {
-    return (
-      <div
-        className={cn(
-          "p-4 rounded-xl",
-          "bg-primary/5 border border-primary/20"
-        )}
-      >
-        <div className="grid gap-3 sm:grid-cols-3">
-          {/* Name input */}
-          <div>
-            <label className="block text-caption text-mute mb-1">Name</label>
-            <input
-              type="text"
-              value={user.draftName}
-              onChange={(e) => onUpdateDraft("name", e.target.value)}
-              placeholder="Full name"
-              className={inputStyles}
-            />
-          </div>
-
-          {/* Role select */}
-          <div>
-            <label className="block text-caption text-mute mb-1">Role</label>
-            <select
-              value={user.draftRole}
-              onChange={(e) => onUpdateDraft("role", e.target.value)}
-              className={inputStyles}
-            >
-              {roles.map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Email input */}
-          <div>
-            <label className="block text-caption text-mute mb-1">Email</label>
-            <input
-              type="email"
-              value={user.draftEmail}
-              onChange={(e) => onUpdateDraft("email", e.target.value)}
-              placeholder="email@example.com"
-              className={inputStyles}
-            />
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 mt-4">
-          <button
-            type="button"
-            onClick={onSave}
-            className={cn(
-              "inline-flex items-center gap-1.5",
-              "px-4 py-2 rounded-lg",
-              "bg-primary text-white",
-              "text-caption font-medium",
-              "transition-all duration-150",
-              "hover:bg-primary/90"
-            )}
-          >
-            <Save className="w-3.5 h-3.5" />
-            Save
-          </button>
-
-          <button
-            type="button"
-            onClick={onCancelEdit}
-            className={cn(
-              "inline-flex items-center gap-1.5",
-              "px-4 py-2 rounded-lg",
-              "border border-neutral-200",
-              "text-caption font-medium text-mute",
-              "transition-all duration-150",
-              "hover:bg-neutral-100 hover:text-ink"
-            )}
-          >
-            <X className="w-3.5 h-3.5" />
-            Cancel
-          </button>
-
-          <div className="flex-1" />
-
-          <button
-            type="button"
-            onClick={onDelete}
-            className={cn(
-              "inline-flex items-center gap-1.5",
-              "px-4 py-2 rounded-lg",
-              "border border-danger/40 text-danger",
-              "text-caption font-medium",
-              "transition-all duration-150",
-              "hover:bg-danger/5"
-            )}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // View mode
   return (
     <div
       className={cn(
         "flex items-center gap-4 p-4",
         "rounded-xl",
         "border border-neutral-200",
-        "hover:border-neutral-300 hover:bg-neutral-50",
-        "transition-all duration-150"
+        "bg-white",
+        "transition-all duration-150",
+        (isDeleting || isUploadingFingerprint) && "opacity-60"
       )}
     >
-      {/* Avatar */}
+      {/* Avatar / Icon */}
       <div
         className={cn(
-          "w-10 h-10 rounded-full",
+          "w-12 h-12 rounded-full",
           "flex items-center justify-center",
-          "bg-neutral-100",
-          "flex-shrink-0"
+          "flex-shrink-0",
+          "bg-primary/10"
         )}
       >
-        <User className="w-5 h-5 text-mute" />
+        <UserIcon className="w-6 h-6 text-primary" />
       </div>
 
       {/* User info */}
       <div className="flex-1 min-w-0">
-        <p className="text-body-sm font-medium text-ink truncate">
-          {user.name}
-        </p>
-        <p className="text-caption text-mute truncate mt-0.5">
-          {user.email}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-body font-semibold text-ink truncate">
+            {user.name}
+          </p>
+          <span
+            className={cn(
+              "px-2 py-0.5 rounded-md",
+              "text-caption font-medium",
+              "bg-neutral-100 text-mute"
+            )}
+          >
+            {formatRole(user.role)}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 mt-1">
+          <span className="text-caption text-subtle">
+            @{user.user_id}
+          </span>
+          {/* Fingerprint status */}
+          <span
+            className={cn(
+              "inline-flex items-center gap-1",
+              "text-caption",
+              user.has_fingerprint ? "text-success" : "text-mute"
+            )}
+          >
+            {user.has_fingerprint ? (
+              <>
+                <CheckCircle className="w-3 h-3" />
+                Voice recorded
+              </>
+            ) : (
+              <>
+                <XCircle className="w-3 h-3" />
+                No voice sample
+              </>
+            )}
+          </span>
+        </div>
       </div>
 
-      {/* Role badge */}
-      <span
-        className={cn(
-          "px-3 py-1 rounded-lg",
-          "text-caption font-medium",
-          roleColors.bg,
-          roleColors.text
-        )}
-      >
-        {user.role}
-      </span>
+      {/* Actions */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Record fingerprint button */}
+        <button
+          type="button"
+          onClick={onRecordFingerprint}
+          disabled={isDeleting || isUploadingFingerprint}
+          className={cn(
+            "inline-flex items-center gap-1.5",
+            "px-3 py-2 rounded-lg",
+            "text-caption font-medium",
+            "transition-all duration-150",
+            user.has_fingerprint
+              ? "border border-neutral-200 text-mute hover:bg-neutral-50 hover:text-ink"
+              : "bg-secondary/10 text-secondary hover:bg-secondary/20"
+          )}
+        >
+          {isUploadingFingerprint ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Mic className="w-4 h-4" />
+          )}
+          <span className="hidden sm:inline">
+            {user.has_fingerprint ? "Re-record" : "Record Voice"}
+          </span>
+        </button>
 
-      {/* Edit button */}
-      <button
-        type="button"
-        onClick={onStartEdit}
-        className={cn(
-          "p-2 rounded-lg",
-          "text-mute",
-          "transition-all duration-150",
-          "hover:bg-neutral-100 hover:text-ink"
-        )}
-        title="Edit user"
-      >
-        <Edit2 className="w-4 h-4" />
-      </button>
+        {/* Delete button */}
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={isDeleting || isUploadingFingerprint}
+          className={cn(
+            "p-2 rounded-lg",
+            "text-mute",
+            "transition-all duration-150",
+            "hover:bg-danger/5 hover:text-danger",
+            "disabled:opacity-50 disabled:cursor-not-allowed"
+          )}
+          title="Delete user"
+        >
+          {isDeleting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Trash2 className="w-4 h-4" />
+          )}
+        </button>
+      </div>
     </div>
   );
 }

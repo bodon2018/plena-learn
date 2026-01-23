@@ -1,225 +1,320 @@
-import { useCallback, useMemo, useState } from "react";
-import { useUsersStore, type UserRole, type AdminUser } from "@/hooks/useUsersStore";
+"use client";
 
-// -----------------------------------------------------------------------------
+import { useCallback, useEffect, useState } from "react";
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8000";
+
+const ORG_ID = "test_org";
+
+// =============================================================================
 // Types
-// -----------------------------------------------------------------------------
+// =============================================================================
 
-export type EditableUser = AdminUser & {
-  isEditing: boolean;
-  draftName: string;
-  draftRole: UserRole;
-  draftEmail: string;
+export type UserRole = "coach" | "player" | "assistant";
+
+export type User = {
+  id: number;
+  user_id: string;
+  org_id: string;
+  name: string;
+  role: string | null;
+  created_at: string;
+  has_fingerprint: boolean;
 };
 
-type CreateUserForm = {
+export type CreateUserForm = {
   name: string;
   role: UserRole;
-  email: string;
 };
-
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
-
-const ROLES: UserRole[] = ["Coach", "Player", "Team"];
-
-function isValidEmail(email: string): boolean {
-  return /\S+@\S+\.\S+/.test(email);
-}
-
-// -----------------------------------------------------------------------------
-// Hook
-// -----------------------------------------------------------------------------
 
 type UseUsersReturn = {
   // Users list
-  users: EditableUser[];
+  users: User[];
+  isLoading: boolean;
+  error: string | null;
+  refreshUsers: () => Promise<void>;
 
-  // Create form
-  form: CreateUserForm;
-  setFormField: <K extends keyof CreateUserForm>(key: K, value: CreateUserForm[K]) => void;
+  // Create user
+  createForm: CreateUserForm;
+  setCreateFormField: <K extends keyof CreateUserForm>(field: K, value: CreateUserForm[K]) => void;
   canCreate: boolean;
-  createUser: () => void;
+  isCreating: boolean;
+  createError: string | null;
+  createUser: () => Promise<void>;
 
-  // Edit actions
-  startEditing: (id: string) => void;
-  cancelEditing: (id: string) => void;
-  updateDraft: (id: string, field: "name" | "role" | "email", value: string) => void;
-  saveUser: (id: string) => void;
-  deleteUser: (id: string) => void;
+  // Delete user
+  deletingIds: Set<string>;
+  deleteError: string | null;
+  deleteUser: (userId: string) => Promise<void>;
 
-  // Constants
-  roles: UserRole[];
+  // Fingerprint
+  uploadingFingerprintFor: string | null;
+  fingerprintError: string | null;
+  uploadFingerprint: (userId: string, audioBlob: Blob) => Promise<void>;
+  deleteFingerprint: (userId: string) => Promise<void>;
 };
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Generate a user_id from the name.
+ * e.g., "Coach Smith" → "coach_smith"
+ */
+function generateUserId(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, "_");
+}
+
+// =============================================================================
+// Hook
+// =============================================================================
 
 export function useUsers(): UseUsersReturn {
   // ---------------------------------------------------------------------------
-  // Store
+  // Users list state
   // ---------------------------------------------------------------------------
-  const {
-    users: storeUsers,
-    createUser: storeCreateUser,
-    updateUser: storeUpdateUser,
-    deleteUser: storeDeleteUser,
-  } = useUsersStore();
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
-  // Local edit state
+  // Create user state
   // ---------------------------------------------------------------------------
-  const [editState, setEditState] = useState<
-    Record<string, { isEditing: boolean; draftName: string; draftRole: UserRole; draftEmail: string }>
-  >({});
-
-  // ---------------------------------------------------------------------------
-  // Create form state
-  // ---------------------------------------------------------------------------
-  const [form, setForm] = useState<CreateUserForm>({
+  const [createForm, setCreateForm] = useState<CreateUserForm>({
     name: "",
-    role: "Coach",
-    email: "",
+    role: "player",
   });
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
-  // Computed
+  // Delete user state
   // ---------------------------------------------------------------------------
-
-  const users: EditableUser[] = useMemo(() => {
-    return storeUsers.map((user) => {
-      const edit = editState[user.id];
-      return {
-        ...user,
-        isEditing: edit?.isEditing ?? false,
-        draftName: edit?.draftName ?? user.name,
-        draftRole: edit?.draftRole ?? user.role,
-        draftEmail: edit?.draftEmail ?? user.email,
-      };
-    });
-  }, [storeUsers, editState]);
-
-  const canCreate = form.name.trim().length > 0 && isValidEmail(form.email);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
-  // Form helpers
+  // Fingerprint state
   // ---------------------------------------------------------------------------
-
-  const setFormField = useCallback(
-    <K extends keyof CreateUserForm>(key: K, value: CreateUserForm[K]) => {
-      setForm((f) => ({ ...f, [key]: value }));
-    },
-    []
-  );
+  const [uploadingFingerprintFor, setUploadingFingerprintFor] = useState<string | null>(null);
+  const [fingerprintError, setFingerprintError] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
-  // Actions
+  // Load users
   // ---------------------------------------------------------------------------
+  const refreshUsers = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
 
-  const createUser = useCallback(() => {
-    if (!canCreate) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/orgs/${ORG_ID}/users`);
 
-    storeCreateUser({
-      name: form.name.trim(),
-      role: form.role,
-      email: form.email.trim(),
-    });
+      if (!res.ok) {
+        throw new Error(`Failed to load users: ${res.status}`);
+      }
 
-    setForm({ name: "", role: "Coach", email: "" });
-  }, [canCreate, form, storeCreateUser]);
-
-  const startEditing = useCallback((id: string) => {
-    const user = storeUsers.find((u) => u.id === id);
-    if (!user) return;
-
-    setEditState((prev) => ({
-      ...prev,
-      [id]: {
-        isEditing: true,
-        draftName: user.name,
-        draftRole: user.role,
-        draftEmail: user.email,
-      },
-    }));
-  }, [storeUsers]);
-
-  const cancelEditing = useCallback((id: string) => {
-    setEditState((prev) => ({
-      ...prev,
-      [id]: {
-        ...prev[id],
-        isEditing: false,
-      },
-    }));
+      const data = await res.json();
+      setUsers(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Error loading users:", err);
+      setError(err instanceof Error ? err.message : "Failed to load users");
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  const updateDraft = useCallback(
-    (id: string, field: "name" | "role" | "email", value: string) => {
-      setEditState((prev) => ({
-        ...prev,
-        [id]: {
-          ...prev[id],
-          ...(field === "name" && { draftName: value }),
-          ...(field === "role" && { draftRole: value as UserRole }),
-          ...(field === "email" && { draftEmail: value }),
-        },
-      }));
+  // Load on mount
+  useEffect(() => {
+    void refreshUsers();
+  }, [refreshUsers]);
+
+  // ---------------------------------------------------------------------------
+  // Create user form helpers
+  // ---------------------------------------------------------------------------
+  const setCreateFormField = useCallback(
+    <K extends keyof CreateUserForm>(field: K, value: CreateUserForm[K]) => {
+      setCreateForm((prev) => ({ ...prev, [field]: value }));
+      setCreateError(null);
     },
     []
   );
 
-  const saveUser = useCallback(
-    (id: string) => {
-      const edit = editState[id];
-      if (!edit) return;
+  const canCreate = !!(createForm.name.trim() && !isCreating);
 
-      storeUpdateUser(id, {
-        name: edit.draftName.trim(),
-        role: edit.draftRole,
-        email: edit.draftEmail.trim(),
+  // ---------------------------------------------------------------------------
+  // Create user
+  // ---------------------------------------------------------------------------
+  const createUser = useCallback(async () => {
+    if (!canCreate) return;
+
+    setIsCreating(true);
+    setCreateError(null);
+
+    const userId = generateUserId(createForm.name);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/orgs/${ORG_ID}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          name: createForm.name.trim(),
+          role: createForm.role,
+        }),
       });
 
-      setEditState((prev) => ({
-        ...prev,
-        [id]: {
-          ...prev[id],
-          isEditing: false,
-        },
-      }));
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Failed to create user: ${res.status}`);
+      }
+
+      // Reset form
+      setCreateForm({ name: "", role: "player" });
+
+      // Refresh list
+      await refreshUsers();
+    } catch (err) {
+      console.error("Error creating user:", err);
+      setCreateError(err instanceof Error ? err.message : "Failed to create user");
+    } finally {
+      setIsCreating(false);
+    }
+  }, [canCreate, createForm, refreshUsers]);
+
+  // ---------------------------------------------------------------------------
+  // Delete user
+  // ---------------------------------------------------------------------------
+  const deleteUser = useCallback(
+    async (userId: string) => {
+      setDeletingIds((prev) => new Set(prev).add(userId));
+      setDeleteError(null);
+
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/orgs/${ORG_ID}/users/${encodeURIComponent(userId)}`,
+          { method: "DELETE" }
+        );
+
+        if (!res.ok) {
+          throw new Error(`Failed to delete user: ${res.status}`);
+        }
+
+        // Remove from local state
+        setUsers((prev) => prev.filter((u) => u.user_id !== userId));
+      } catch (err) {
+        console.error("Error deleting user:", err);
+        setDeleteError(err instanceof Error ? err.message : "Failed to delete user");
+      } finally {
+        setDeletingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(userId);
+          return next;
+        });
+      }
     },
-    [editState, storeUpdateUser]
+    []
   );
 
-  const deleteUser = useCallback(
-    (id: string) => {
-      const user = storeUsers.find((u) => u.id === id);
-      const name = user?.name || "this user";
+  // ---------------------------------------------------------------------------
+  // Upload fingerprint
+  // ---------------------------------------------------------------------------
+  const uploadFingerprint = useCallback(
+    async (userId: string, audioBlob: Blob) => {
+      setUploadingFingerprintFor(userId);
+      setFingerprintError(null);
 
-      if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+      try {
+        const formData = new FormData();
+        formData.append("file", audioBlob, "fingerprint.webm");
 
-      storeDeleteUser(id);
-      setEditState((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
+        const res = await fetch(
+          `${API_BASE}/api/orgs/${ORG_ID}/users/${encodeURIComponent(userId)}/fingerprint`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.detail || `Failed to upload fingerprint: ${res.status}`);
+        }
+
+        // Refresh users to update has_fingerprint status
+        await refreshUsers();
+      } catch (err) {
+        console.error("Error uploading fingerprint:", err);
+        setFingerprintError(err instanceof Error ? err.message : "Failed to upload fingerprint");
+      } finally {
+        setUploadingFingerprintFor(null);
+      }
     },
-    [storeUsers, storeDeleteUser]
+    [refreshUsers]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Delete fingerprint
+  // ---------------------------------------------------------------------------
+  const deleteFingerprint = useCallback(
+    async (userId: string) => {
+      setUploadingFingerprintFor(userId);
+      setFingerprintError(null);
+
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/orgs/${ORG_ID}/users/${encodeURIComponent(userId)}/fingerprint`,
+          { method: "DELETE" }
+        );
+
+        if (!res.ok) {
+          throw new Error(`Failed to delete fingerprint: ${res.status}`);
+        }
+
+        // Refresh users to update has_fingerprint status
+        await refreshUsers();
+      } catch (err) {
+        console.error("Error deleting fingerprint:", err);
+        setFingerprintError(err instanceof Error ? err.message : "Failed to delete fingerprint");
+      } finally {
+        setUploadingFingerprintFor(null);
+      }
+    },
+    [refreshUsers]
   );
 
   // ---------------------------------------------------------------------------
   // Return
   // ---------------------------------------------------------------------------
-
   return {
+    // Users list
     users,
-    form,
-    setFormField,
+    isLoading,
+    error,
+    refreshUsers,
+
+    // Create user
+    createForm,
+    setCreateFormField,
     canCreate,
+    isCreating,
+    createError,
     createUser,
-    startEditing,
-    cancelEditing,
-    updateDraft,
-    saveUser,
+
+    // Delete user
+    deletingIds,
+    deleteError,
     deleteUser,
-    roles: ROLES,
+
+    // Fingerprint
+    uploadingFingerprintFor,
+    fingerprintError,
+    uploadFingerprint,
+    deleteFingerprint,
   };
 }
